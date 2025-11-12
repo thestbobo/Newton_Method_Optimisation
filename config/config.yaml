@@ -1,0 +1,13 @@
+run:
+  problem: quad            # chose exactly two test problems taken from [1]
+  n: 50
+  method: gd               # {gd, mn, tn} (gd = gradient baseline, mn = modified newton, tn = truncated newton)
+  seed: 1234               # == lowest student ID
+  max_iters: 1000           # maximum number of iterations for the optimization method
+  tolerance: 1e-6          # tolerance for stopping criterion
+
+line_search:        # armijo line search parameters
+  alpha: 0.5
+  rho: 0.1
+  c: 1e-4
+  max_ls_iter: 20

@@ -26,7 +26,7 @@ def main():
     problem = cfg["run"]["problem"]
 
     if problem == "quad":
-        f, grad, hv, xbar = make_quadratic(
+        f, grad, hv, xbar, A, b = make_quadratic(
             n=cfg["run"]["n"],
             seed=cfg["run"]["seed"]
         )
@@ -46,6 +46,10 @@ def main():
         raise ValueError("Unknown optimisation method")
 
     print(res)
+    x = res["x"]
+    x_opt = np.linalg.solve(A, b)
+    print(f"||x - x*|| = : {np.linalg.norm(x - x_opt)}")
+    print(f"f(x) - f(x*) = : {f(x) - f(x_opt)}")
 
 
 if __name__ == '__main__':

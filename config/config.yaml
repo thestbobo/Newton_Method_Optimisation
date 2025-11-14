@@ -3,7 +3,7 @@ run:
   n: 50
   method: gd               # {gd, mn, tn} (gd = gradient baseline, mn = modified newton, tn = truncated newton)
   seed: 1234               # == lowest student ID
-  max_iters: 1000           # maximum number of iterations for the optimization method
+  max_iters: 10000         # maximum number of iterations for the optimization method
   tolerance: 1e-6          # tolerance for stopping criterion
 
 line_search:        # armijo line search parameters

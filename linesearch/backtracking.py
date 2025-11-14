@@ -7,7 +7,7 @@ def armijo_backtracking(f, x, f_x, g_x, p, init_alpha, rho, c, max_iters=20 ):
     alpha = init_alpha
     for _ in range(max_iters):
         f_x_new = f(x + alpha * p)
-        if np.isfinite(f_x_new) and f_x_new <= f_x + c * alpha * dg:
+        if np.isfinite(f_x_new) and f_x_new <= f_x + float(c) * alpha * dg:
             return alpha
         alpha *= rho
     return 0.0

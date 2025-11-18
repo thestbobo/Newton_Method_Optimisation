@@ -1,13 +1,83 @@
 run:
-  problem: quad            # chose exactly two test problems taken from [1]
-  n: 50
-  method: gd               # {gd, mn, tn} (gd = gradient baseline, mn = modified newton, tn = truncated newton)
-  seed: 1234               # == lowest student ID
-  max_iters: 10000         # maximum number of iterations for the optimization method
-  tolerance: 1e-6          # tolerance for stopping criterion
+  problem:                            # es. quad, ext_powell (entrambi presi da [1])
+  n_value:                            # richiesto dall'assignment [2, 1000, 10000, 100000]
+  methods:                            # {mn, tn} ufficiali; gd solo extra se vuoi
+  seed: 1234                          # == lowest student ID
+  start_type: xbar        # {xbar, random}
+  random_id: 1            # 1..5 (serve solo se start_type = random)
+  max_iters: 2000                     # 1000–2000 è ok per report
+  tolerance: 1e-6                     # ||grad|| < tol
+  num_random_starts: 5                # 5 starting points random + uno x̄ di default
+  save_paths_2d: true                 # salva traiettorie per n = 2 per i plot
+  save_rates: true                    # salva dati per experimental rate of convergence
 
-line_search:        # armijo line search parameters
-  alpha: 0.5
-  rho: 0.1
-  c: 1e-4
+line_search:
+  type: armijo
+  alpha0: 1.0        # initial step length
+  rho: 0.5           # step reduction factor
+  c: 1e-4            # Armijo parameter
   max_ls_iter: 20
+
+derivatives:
+  mode: exact        # {exact, fd_hessian, fd_all} → per gestire i vari esperimenti
+  # per finite differences:
+  h_exponents:              #[4, 8, 12]    genera h = 10^{-k}
+  relative:                 #[false, true]   # h_i = h  oppure h_i = h*|x_i|
+  # puoi anche specificare come combinare:
+  schemes:
+    gradient: forward       # per ora forward va benissimo
+    hessian: grad_diff      # Hessian via differenze sul gradiente
+
+modified_newton:
+  # SPD modification parameters for H
+  spd_fix:
+    lambda_init: 1e-6       # primo λ da aggiungere sulla diagonale
+    lambda_factor: 10.0     # se Cholesky fallisce → λ *= factor
+    lambda_max: 1e8         # sicurezza: se superi → segnali failure
+  hessian_source:           # da usare nel codice per decidere che Hessian prendi
+    exact: hess_exact
+    fd_hessian: fd_hess_from_grad
+    fd_all: fd_hess_from_grad  # ma usando grad_fd invece di grad_exact
+
+truncated_newton:
+  cg:
+    max_iters: 50           # iterazioni interne CG (puoi testare 20, 50, 100)
+    tol: 1e-3               # tolleranza CG (non serve stringere troppo)
+    use_preconditioning: false  # se vuoi aggiungere un precondizionatore
+  hessvec_source:
+    exact: hessvec_exact
+    fd_hessian: hessvec_fd_from_grad  # usando grad_exact
+    fd_all: hessvec_fd_from_grad      # usando grad_fd
+
+logging:
+  level: info
+  save_tables: true
+  output_dir: output   # root di tutto
+
+postprocessing:
+  make_tables: true
+  make_figures: true
+
+  tables:
+    output_dir: output/tables
+    columns:
+      - problem
+      - n
+      - mode
+      - method
+      - start_id
+      - success
+      - num_iters
+      - grad_norm
+      - time
+      - rate
+
+  figures:
+    output_dir: output/figures
+    top_view:
+      enabled: true
+      levels: 30
+    rates:
+      enabled: true
+      use_log_scale: true
+

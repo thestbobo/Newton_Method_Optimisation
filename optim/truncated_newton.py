@@ -1,4 +1,7 @@
 import numpy as np
+from differentation.finite_differences import fd_hessian, hessvec_fd_from_grad
+from linesearch.backtracking import armijo_backtracking
+from optim.gradient_baseline import conjugate_gradient, conjugate_gradient_hess_vect_prod
 
 
 def solve_truncated_newton(problem, x0, config, h=None, relative=False):
@@ -59,7 +62,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         grad_fn = problem.grad_exact
 
         def hessvec_fn(x, v):
-            return hessvec_fd_from_grad(grad_fn, x, v, h=h)
+            return hessvec_fd_from_grad(f, grad_fn, x, v, h, forward_backward=-1)
 
     elif mode == 'fd_all':
         if h is None:
@@ -67,7 +70,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         grad_fn = lambda x: fd_grad_fwd(f, x, h=h, relative=relative)
 
         def hessvec_fn(x, v):
-            return hessvec_fd_from_grad(grad_fn, x, v, h=h)
+            return hessvec_fd_from_grad(f, grad_fn, x, v, h=h, forward_backward=-1)
 
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
@@ -81,8 +84,10 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     total_cg_iters = 0
 
     for k in range(1, max_iters + 1):
+        
         g = grad_fn(x)
         grad_norm = np.linalg.norm(g)
+        eta = min(cg_tol, grad_norm)
 
         if save_rates:
             rates.append(grad_norm)
@@ -95,13 +100,12 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             return hessvec_fn(x, p)
 
         # conjugate_gradient è già definita nei tuoi helpers
-        p, cg_iter = conjugate_gradient(
-            A_op,
-            b=-g,
-            x0=None,
-            tol=cg_tol,
-            max_iter=cg_max_iters
-        )
+        p, cg_iter = conjugate_gradient(x, g, 
+                                        hessvec_fn, 
+                                        cg_max_iters,
+                                        eta)
+            
+        
         total_cg_iters += cg_iter
 
         if np.linalg.norm(p) < 1e-16:
@@ -109,13 +113,13 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             break
 
         f_x = f(x)
-        alpha, ls_it = armijo_backtracking(
+        alpha = armijo_backtracking(
             f, x, f_x, g, p,
-            alpha0=alpha0,
+            init_alpha=alpha0,
             rho=rho,
             c=c,
-            max_ls_iter=max_ls_iter
-        )
+            max_iters=max_ls_iter
+            )
 
         x = x + alpha * p
 
@@ -193,8 +197,9 @@ def main(config, h_exponent=None, relative=False):
 
     for x0 in starts:
         if 'mn' in methods:
-            res_mn = solve_modified_newton(problem, x0, config, h=h, relative=relative)
-            results['mn'].append(res_mn)
+            # res_mn = solve_modified_newton(problem, x0, config, h=h, relative=relative)
+            # results['mn'].append(res_mn)
+            pass
 
         if 'tn' in methods:
             res_tn = solve_truncated_newton(problem, x0, config, h=h, relative=relative)

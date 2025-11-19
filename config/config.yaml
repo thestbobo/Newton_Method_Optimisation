@@ -1,6 +1,6 @@
 run:
-  problem:                            # es. quad, ext_powell (entrambi presi da [1])
-  n_value:                            # richiesto dall'assignment [2, 1000, 10000, 100000]
+  problem:  broyden_tridiagonal                          # es. quad, ext_powell (entrambi presi da [1])
+  n_value:    2                        # richiesto dall'assignment [2, 1000, 10000, 100000]
   methods:                            # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 1234                          # == lowest student ID
   start_type: xbar        # {xbar, random}
@@ -21,8 +21,9 @@ line_search:
 derivatives:
   mode: exact        # {exact, fd_hessian, fd_all} → per gestire i vari esperimenti
   # per finite differences:
-  h_exponents:              #[4, 8, 12]    genera h = 10^{-k}
+  h_exponents: 4             #[4, 8, 12]    genera h = 10^{-k}
   relative:                 #[false, true]   # h_i = h  oppure h_i = h*|x_i|
+  forward_backward:         # -1, 0, 1 per backward, centred, forward
   # puoi anche specificare come combinare:
   schemes:
     gradient: forward       # per ora forward va benissimo
@@ -42,7 +43,7 @@ modified_newton:
 truncated_newton:
   cg:
     max_iters: 50           # iterazioni interne CG (puoi testare 20, 50, 100)
-    tol: 1e-3               # tolleranza CG (non serve stringere troppo)
+    tol: 0.5            # tolleranza CG (non serve stringere troppo)
     use_preconditioning: false  # se vuoi aggiungere un precondizionatore
   hessvec_source:
     exact: hessvec_exact

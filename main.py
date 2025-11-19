@@ -1,10 +1,11 @@
 import yaml
 import numpy as np
 
-from optim import solve_modified_newton, solve_truncated_newton
+from optim.modified_newton import solve_modified_newton
+from optim.truncated_newton import solve_truncated_newton
 from analysis.postprocess import postprocess
 from problems import problem_classes   # dict: {'quad': QuadProblem, 'ext_powell': ExtendedPowellProblem, ...}
-
+from starting_points.generator import generate_single_starting_point
 
 def main(config):
     """
@@ -43,6 +44,9 @@ def main(config):
     # STARTING POINT
 
     x0, start_id = generate_single_starting_point(problem, config)
+    # provvisorio
+    starts = []
+    starts.append([x0, start_id])  
 
 
     # gestisco h per finite differences, in base a derivatives.mode

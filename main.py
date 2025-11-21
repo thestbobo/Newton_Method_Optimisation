@@ -1,5 +1,6 @@
 import yaml
 import numpy as np
+import time
 
 from optim.modified_newton import solve_modified_newton
 from optim.truncated_newton import solve_truncated_newton
@@ -82,9 +83,14 @@ if __name__ == "__main__":
     with open("config/config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
+    start = time.perf_counter()
     # 2) Esegui SOLO l’esperimento descritto in config.yaml
     all_results = main(config)
 
+    end = time.perf_counter()
+    time = end - start
+
+
     # 3) Genera tabelle + figure per QUESTO esperimento
     #    (tutto va in output/tables e output/figures)
-    postprocess(all_results, config, problem_classes)
+    postprocess(all_results, config, problem_classes, time)

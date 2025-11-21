@@ -5,16 +5,17 @@ import matplotlib.pyplot as plt
 
 
 def plot_top_view_with_paths(problem, results_for_combo, config,
-                             problem_name, n, mode, method):
+                             problem_name, n, mode, method, start):
     """
     Top view: contour di f + paths delle sequenze (solo n=2).
     results_for_combo: lista di result dict per (problem_name, n, mode, method)
                        con chiave 'path' (array (K,2)).
     """
     fig_cfg = config['postprocessing']['figures']['top_view']
-    out_dir = config['postprocessing']['figures']['output_dir']
+    out_dir = 'output'
+    exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start}"
     os.makedirs(out_dir, exist_ok=True)
-
+    exp_path = os.path.join(out_dir, exp_name)
     # raccogli tutti i punti delle traiettorie
     all_points = []
     for res in results_for_combo:
@@ -58,16 +59,26 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
         plt.plot(path[:, 0], path[:, 1],
                  marker='o', linewidth=1, markersize=3, label=f'start {idx}')
 
-    plt.title(f"{problem_name}, n={n}, mode={mode}, method={method}")
+    plt.title(f"{problem_name}, n={n}, mode={mode}, method={method}, start={start}")
     plt.xlabel("x1")
     plt.ylabel("x2")
     plt.legend(loc='best', fontsize=8)
     plt.tight_layout()
 
-    fname = f"{problem_name}_n{n}_{mode}_{method}_topview.png"
-    out_path = os.path.join(out_dir, fname)
-    plt.savefig(out_path, dpi=300)
-    plt.close()
+    # ---- SALVATAGGIO FIGURA ----
+
+    # filename semplice
+    fname = "paths.png"
+
+    root_output = out_dir  # <--- QUI CAMBIA
+
+    exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start}"
+    exp_dir = os.path.join(root_output, exp_name)
+    os.makedirs(exp_dir, exist_ok=True)
+
+    exp_path = os.path.join(exp_dir, fname)
+    plt.savefig(exp_path, dpi=300)
+
 
 
 def plot_rates_for_dimension(all_results, config,
@@ -77,7 +88,7 @@ def plot_rates_for_dimension(all_results, config,
     per una combinazione (problem_name, n, mode, method).
     """
     fig_cfg = config['postprocessing']['figures']['rates']
-    out_dir = config['postprocessing']['figures']['output_dir']
+    out_dir = 'output'
     os.makedirs(out_dir, exist_ok=True)
 
     series = []
@@ -109,7 +120,20 @@ def plot_rates_for_dimension(all_results, config,
     plt.legend(loc='best', fontsize=8)
     plt.tight_layout()
 
-    fname = f"{problem_name}_n{n}_{mode}_{method}_rates.png"
-    out_path = os.path.join(out_dir, fname)
-    plt.savefig(out_path, dpi=300)
+    # ---- SALVATAGGIO FIGURA ----
+
+    fname = "rates.png"
+
+
+
+    # 2) salvataggio in ogni cartella per start
+    root_output = "output"
+    for start_id, _rates in series:
+        exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start_id}"
+        exp_dir = os.path.join(root_output, exp_name)
+        os.makedirs(exp_dir, exist_ok=True)
+
+        exp_path = os.path.join(exp_dir, fname)
+        plt.savefig(exp_path, dpi=300)
+
     plt.close()

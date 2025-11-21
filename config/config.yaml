@@ -4,7 +4,7 @@ run:
   methods:  'tn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID
   start_type: xbar        # {xbar, random}
-  random_id: 1            # 1..5 (serve solo se start_type = random)
+  random_id: 0            # IMPOSTARE 0 SE SI USA xbar, sennò 1,2,3,4,5 per ogni random
   max_iters: 2000                     # 1000–2000 è ok per report
   tolerance: 1e-6                     # ||grad|| < tol
   num_random_starts: 5                # 5 starting points random + uno x̄ di default
@@ -60,7 +60,7 @@ postprocessing:
   make_figures: true
 
   tables:
-    output_dir: output/tables
+    output_dir: output
     columns:
       - problem
       - n
@@ -76,7 +76,7 @@ postprocessing:
       - rate
 
   figures:
-    output_dir: output/figures
+    output_dir: output
     top_view:
       enabled: true
       levels: 30

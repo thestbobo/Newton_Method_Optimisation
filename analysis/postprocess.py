@@ -1,11 +1,11 @@
 # analysis/postprocess.py
 import os
-from .tables import (
+from analysis.tables import (
     build_table_row,
     save_table,
     compute_experimental_rate_from_grad_norms,
 )
-from .figures import (
+from analysis.figures import (
     plot_top_view_with_paths,
     plot_rates_for_dimension,
 )

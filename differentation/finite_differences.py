@@ -77,7 +77,7 @@ def fd_hessian(f, x, h):
     return hess
 
 
-
+# might be useless
 def fd_jacobian(f, x, h, forward_backward):
     
     if forward_backward == 0:

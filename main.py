@@ -44,9 +44,8 @@ def main(config):
     # STARTING POINT
 
     x0, start_id = generate_single_starting_point(problem, config)
-    # provvisorio
-    starts = []
-    starts.append([x0, start_id])  
+    # provvisorio -> not working for 5 starting points
+    starts = [(x0, start_id)]
 
 
     # gestisco h per finite differences, in base a derivatives.mode
@@ -62,7 +61,7 @@ def main(config):
 
     all_results = {}
 
-    for start_id, x0 in enumerate(starts):
+    for x0, start_id in starts:
         # Modified Newton
         if 'mn' in methods:
             res_mn = solve_modified_newton(problem, x0, config, h=h, relative=relative)
@@ -80,7 +79,7 @@ def main(config):
 
 if __name__ == "__main__":
     # 1) Leggi il config dell’esperimento corrente
-    with open("config.yaml", "r") as f:
+    with open("config/config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
     # 2) Esegui SOLO l’esperimento descritto in config.yaml

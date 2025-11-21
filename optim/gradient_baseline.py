@@ -53,10 +53,9 @@ def conjugate_gradient(x0, grad_x0, hess_x0, max_iter, eta):
                 return z, i
         else:
             return z, i
-        
-        
-                
-def conjugate_gradient_hess_vect_prod(x0, grad_x0, max_iter, eta, hess_vect_prod, hv_h, f, hv_fb, fd_grad):
+
+
+def conjugate_gradient_hess_vect_prod_old(x0, grad_x0, max_iter, eta, hess_vect_prod, hv_h, f, hv_fb, fd_grad):
     
     C = grad_x0                 # gradiente in x0
     r = -C                      # residuo iniziale
@@ -95,7 +94,69 @@ def conjugate_gradient_hess_vect_prod(x0, grad_x0, max_iter, eta, hess_vect_prod
     
     return z, max_iter
 
-            
+
+
+def conjugate_gradient_hess_vect_prod(grad_x0, Av, max_iter, eta):
+    """
+    Parameters
+    ----------
+    grad_x : np.ndarray
+        Gradient at the current x (g).
+    Av : callable
+        Function that, given a direction d, returns H d.
+    max_iter : int
+        Maximum number of CG iterations.
+    eta : float
+        Inexact Newton tolerance, we stop when ||r_k|| <= eta * ||r_0||.
+
+    Returns
+    -------
+    p : np.ndarray
+        Approximate solution of H p = -grad_x.
+    k : int
+        Number of CG iterations performed.
+    """
+    g = grad_x0
+    b = -g
+
+    # initial guess p0 = 0
+    p = np.zeros_like(g)
+
+    # residual r0 = b - , p0 = -g
+    r = b.copy()
+    r_norm0 = np.linalg.norm(r)
+
+    if r_norm0 == 0.0:
+        return p, 0
+
+    d = r.copy()
+
+    for k in range(max_iter):
+        Ad = Av(d)          # H d
+        dAd = d @ Ad
+
+        # negative curvature
+        if dAd <= 0:
+            return p, k
+
+        alpha = (r @ r) / dAd
+
+        # update solution
+        p = p + alpha * d
+
+        # update residual: r_{k+1} = r_k - alpha * A d_k
+        new_r = r - alpha * Ad
+
+        # inexact Newton stpping criterion
+        if np.linalg.norm(new_r) <= eta * r_norm0:
+            return p, k + 1
+
+        beta = (new_r @ new_r) / (r @ r)
+
+        d = new_r + beta * d
+        r = new_r
+
+    return p, max_iter
         
              
     

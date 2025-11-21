@@ -51,7 +51,8 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     if mode == 'exact':
         grad_fn = problem.grad_exact
         if hasattr(problem, 'hessvec_exact'):
-            hessvec_fn = problem.hessvec_exact
+            def hessvec_fn(x, v):
+                return problem.hessvec_exact(x, v)
         else:
             def hessvec_fn(x, v):
                 return problem.hess_exact(x) @ v
@@ -67,7 +68,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        grad_fn = lambda x: fd_grad_fwd(f, x, h=h, relative=relative)
+        # grad_fn = lambda x: fd_grad_fwd(f, x, h=h, relative=relative)
 
         def hessvec_fn(x, v):
             return hessvec_fd_from_grad(f, grad_fn, x, v, h=h, forward_backward=-1)
@@ -84,7 +85,6 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     total_cg_iters = 0
 
     for k in range(1, max_iters + 1):
-        
         g = grad_fn(x)
         grad_norm = np.linalg.norm(g)
         eta = min(cg_tol, grad_norm)
@@ -92,18 +92,17 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         if save_rates:
             rates.append(grad_norm)
 
-        if grad_norm < tol:
+        if grad_norm < float(tol):
             success = True
             break
 
-        def A_op(p):
-            return hessvec_fn(x, p)
+        Av = lambda d: hessvec_fn(x, d)
 
         # conjugate_gradient è già definita nei tuoi helpers
-        p, cg_iter = conjugate_gradient(x, g, 
-                                        hessvec_fn, 
-                                        cg_max_iters,
-                                        eta)
+        p, cg_iter = conjugate_gradient_hess_vect_prod(grad_x0=g,
+                                                       Av=Av,
+                                                       max_iter=cg_max_iters,
+                                                       eta=eta)
             
         
         total_cg_iters += cg_iter

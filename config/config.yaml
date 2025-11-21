@@ -1,8 +1,8 @@
 run:
   problem:  broyden_tridiagonal                          # es. quad, ext_powell (entrambi presi da [1])
-  n_value:    2                        # richiesto dall'assignment [2, 1000, 10000, 100000]
-  methods:                            # {mn, tn} ufficiali; gd solo extra se vuoi
-  seed: 1234                          # == lowest student ID
+  n_value: 100000                       # richiesto dall'assignment [2, 1000, 10000, 100000]
+  methods:  'tn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
+  seed: 349308                          # == lowest student ID
   start_type: xbar        # {xbar, random}
   random_id: 1            # 1..5 (serve solo se start_type = random)
   max_iters: 2000                     # 1000–2000 è ok per report
@@ -43,7 +43,7 @@ modified_newton:
 truncated_newton:
   cg:
     max_iters: 50           # iterazioni interne CG (puoi testare 20, 50, 100)
-    tol: 0.5            # tolleranza CG (non serve stringere troppo)
+    tol: 0.01            # tolerance CG -> (0.5 was way too loose -> (0.1:loose but ok, 0.01:typical, 0.001:good))
     use_preconditioning: false  # se vuoi aggiungere un precondizionatore
   hessvec_source:
     exact: hessvec_exact
@@ -67,8 +67,10 @@ postprocessing:
       - mode
       - method
       - start_id
+      - f_final
       - success
       - num_iters
+      - num_cg_iters
       - grad_norm
       - time
       - rate

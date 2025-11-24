@@ -1,6 +1,6 @@
 run:
   problem:  broyden_tridiagonal                          # es. quad, ext_powell (entrambi presi da [1])
-  n_value: 100000                       # richiesto dall'assignment [2, 1000, 10000, 100000]
+  n_value: 10                           # richiesto dall'assignment [2, 1000, 10000, 100000]
   methods:  'tn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID
   start_type: xbar        # {xbar, random}
@@ -19,11 +19,11 @@ line_search:
   max_ls_iter: 20
 
 derivatives:
-  mode: exact        # {exact, fd_hessian, fd_all} → per gestire i vari esperimenti
+  mode: fd_all        # {exact, fd_hessian, fd_all} → per gestire i vari esperimenti
   # per finite differences:
   h_exponents: 4             #[4, 8, 12]    genera h = 10^{-k}
   relative:                 #[false, true]   # h_i = h  oppure h_i = h*|x_i|
-  forward_backward:         # -1, 0, 1 per backward, centred, forward
+  forward_backward: 1        # -1, 0, 1 per backward, centred, forward
   # puoi anche specificare come combinare:
   schemes:
     gradient: forward       # per ora forward va benissimo

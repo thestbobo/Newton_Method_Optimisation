@@ -191,10 +191,10 @@ def an_hess_from_grad(an_grad, x, h, forward_backward):
 
 def hessvec_fd_from_grad(f, fd_grad, x, v, h, forward_backward):
 
-    grad_x = fd_grad(f, x, h, forward_backward)
+    grad_x = fd_grad(x)
     
     x_eps = x + h*v
-    grad_x_eps = fd_grad(f, x_eps, h, forward_backward)
+    grad_x_eps = fd_grad(x_eps)
     
     Hv = (grad_x_eps - grad_x) / h
     return Hv

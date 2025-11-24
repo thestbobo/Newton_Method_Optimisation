@@ -1,5 +1,5 @@
 import numpy as np
-from differentation.finite_differences import fd_hessian, hessvec_fd_from_grad
+from differentation.finite_differences import fd_hessian, hessvec_fd_from_grad, fd_gradient
 from linesearch.backtracking import armijo_backtracking
 from optim.gradient_baseline import conjugate_gradient, conjugate_gradient_hess_vect_prod
 
@@ -41,6 +41,8 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     rho = ls_cfg['rho']
     c = ls_cfg['c']
     max_ls_iter = ls_cfg['max_ls_iter']
+    
+    fw_bw = config['derivatives']['forward_backward']
 
     cg_max_iters = tn_cfg['cg']['max_iters']
     cg_tol = tn_cfg['cg']['tol']
@@ -68,7 +70,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        # grad_fn = lambda x: fd_grad_fwd(f, x, h=h, relative=relative)
+        grad_fn = lambda x: fd_gradient(f, x, h=h, forward_backward=fw_bw)
 
         def hessvec_fn(x, v):
             return hessvec_fd_from_grad(f, grad_fn, x, v, h=h, forward_backward=-1)

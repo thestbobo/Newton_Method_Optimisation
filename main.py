@@ -56,9 +56,9 @@ def main(config):
         relative = False
     else:
         # prendi il primo k e il primo flag relative dalla lista
-        k_exp = config['derivatives']['h_exponents'][0]      # es. 4 → h = 1e-4
+        k_exp = config['derivatives']['h_exponents']      # es. 4 → h = 1e-4
         h = 10.0 ** (-k_exp)
-        relative = bool(config['derivatives']['relative'][0])
+        relative = bool(config['derivatives']['relative'])
 
     all_results = {}
 

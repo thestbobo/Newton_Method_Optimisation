@@ -122,7 +122,6 @@ def conjugate_gradient_hess_vect_prod(grad_x0, Av, max_iter, eta):
     # initial guess p0 = 0
     p = np.zeros_like(g)
 
-    # residual r0 = b - , p0 = -g
     r = b.copy()
     r_norm0 = np.linalg.norm(r)
 
@@ -137,7 +136,10 @@ def conjugate_gradient_hess_vect_prod(grad_x0, Av, max_iter, eta):
 
         # negative curvature
         if dAd <= 0:
-            return p, k
+            if k == 0:
+                p = -g.copy()
+                k = 1
+            break
 
         alpha = (r @ r) / dAd
 
@@ -149,14 +151,19 @@ def conjugate_gradient_hess_vect_prod(grad_x0, Av, max_iter, eta):
 
         # inexact Newton stpping criterion
         if np.linalg.norm(new_r) <= eta * r_norm0:
-            return p, k + 1
+            r = new_r
+            k += 1
+            break
 
         beta = (new_r @ new_r) / (r @ r)
 
         d = new_r + beta * d
         r = new_r
 
-    return p, max_iter
+    if g @ p > 0:
+        p = -p
+
+    return p, k
         
              
     

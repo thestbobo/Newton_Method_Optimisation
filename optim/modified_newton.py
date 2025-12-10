@@ -1,5 +1,63 @@
 import numpy as np
 
+from linesearch.backtracking import armijo_backtracking
+
+
+import numpy as np
+
+def _modify_to_spd(H, lam_init, lam_factor, lam_max):
+    """
+    Modify (approximately symmetric) Hessian H to be SPD by adding λ I.
+
+    Parameters
+    ----------
+    H : (n, n) array_like
+        Hessian (not necessarily SPD). Assumed square.
+    lam_init : float
+        Initial positive regularization parameter λ (used after a first failure).
+    lam_factor : float
+        Multiplicative factor > 1 to increase λ when Cholesky fails.
+    lam_max : float
+        Maximum allowed λ. If exceeded, we give up (spd_ok = False).
+
+    Returns
+    -------
+    H_mod : (n, n) ndarray
+        Modified matrix H + λ I that is SPD (if spd_ok=True), or last tried one.
+    lambda_used : float
+        The λ used in the final matrix.
+    spd_ok : bool
+        True if we found an SPD matrix with λ ≤ lam_max, False otherwise.
+    """
+    H = np.asarray(H, dtype=float)
+    n = H.shape[0]
+
+    # Symmetrize to remove small asymmetries from numerical errors
+    H = 0.5 * (H + H.T)
+
+    # Try first with λ = 0 (i.e., original Hessian)
+    lam = 0.0
+
+    while True:
+        try:
+            # Try Cholesky: succeeds iff H + λI is SPD
+            H_mod = H + lam * np.eye(n)
+            np.linalg.cholesky(H_mod)
+            # If we get here, it's SPD
+            return H_mod, lam, True
+
+        except np.linalg.LinAlgError:
+            # Need to increase λ and try again
+            if lam == 0.0:
+                lam = lam_init
+            else:
+                lam *= lam_factor
+
+            if lam > lam_max:
+                # Give up: return last attempt but flag failure
+                H_mod = H + lam * np.eye(n)
+                return H_mod, lam, False
+
 
 def solve_modified_newton(problem, x0, config, h=None, relative=False):
     """
@@ -55,13 +113,13 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-        hess_fn = lambda x: fd_hess_from_grad(grad_fn, x, h=h, relative=relative)
+        # hess_fn = lambda x: fd_hess_from_grad(grad_fn, x, h=h, relative=relative)
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        grad_fn = lambda x: fd_grad_fwd(f, x, h=h, relative=relative)
-        hess_fn = lambda x: fd_hess_from_grad(grad_fn, x, h=h, relative=relative)
+        # grad_fn = lambda x: fd_grad_fwd(f, x, h=h, relative=relative)
+        # hess_fn = lambda x: fd_hess_from_grad(grad_fn, x, h=h, relative=relative)
 
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
@@ -82,14 +140,14 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if save_rates:
             rates.append(grad_norm)
 
-        if grad_norm < tol:
+        if grad_norm < float(tol):
             success = True
             break
 
         H = hess_fn(x)
 
         # SPD-fix via modify_to_spd (già esistente nel tuo progetto)
-        H_mod, lambda_used, spd_ok = modify_to_spd(H, lam_init, lam_factor, lam_max)
+        H_mod, lambda_used, spd_ok = _modify_to_spd(H, lam_init, lam_factor, lam_max)
         lambda_last = lambda_used
         if not spd_ok:
             success = False
@@ -100,14 +158,13 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
 
         # line search di Armijo (armijo_backtracking già esiste)
         f_x = f(x)
-        alpha, ls_it = armijo_backtracking(
+        alpha = armijo_backtracking(
             f, x, f_x, g, p,
-            alpha0=alpha0,
+            init_alpha=alpha0,
             rho=rho,
             c=c,
-            max_ls_iter=max_ls_iter
+            max_iters=max_ls_iter
         )
-        total_backtracks += ls_it
 
         # update
         x = x + alpha * p
@@ -127,7 +184,6 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         'f': f(x),
         'grad_norm': grad_norm,
         'num_iters': k,
-        'num_backtracks': total_backtracks,
         'lambda_last': lambda_last,
         'success': success,
     }

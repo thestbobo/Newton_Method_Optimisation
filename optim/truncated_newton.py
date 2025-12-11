@@ -53,10 +53,10 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     if mode == 'exact':
         grad_fn = problem.grad_exact
         if hasattr(problem, 'hessvec_exact'):
-            def hessvec_fn(x, v):
+            def hessvec_fn(x, v): # type: ignore
                 return problem.hessvec_exact(x, v)
         else:
-            def hessvec_fn(x, v):
+            def hessvec_fn(x, v): # type: ignore
                 return problem.hess_exact(x) @ v
 
     elif mode == 'fd_hessian':
@@ -64,17 +64,26 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
 
-        def hessvec_fn(x, v):
+        def hessvec_fn(x, v): # type: ignore
             return hessvec_fd_from_grad(f, grad_fn, x, v, h, forward_backward=-1)
 
     elif mode == 'fd_all':
+        print('fd_all')
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        grad_fn = lambda x: fd_gradient(f, x, h=h, forward_backward=fw_bw)
+        grad_fn = lambda x: problem.fd_gradient(x, h=h)
 
-        def hessvec_fn(x, v):
+        def hessvec_fn(x, v): # type: ignore
             return hessvec_fd_from_grad(f, grad_fn, x, v, h=h, forward_backward=-1)
-
+        
+    elif mode == 'exact_grad_fd_hessian':
+        grad_fn = problem.grad_exact
+        
+        def hessvec_fn(x, g, v):
+            return problem.fd_hessian_from_grad(x, g, h) @ v
+        
+        
+        
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
 
@@ -87,7 +96,9 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     total_cg_iters = 0
 
     for k in range(1, max_iters + 1):
+        print(k)
         g = grad_fn(x)
+        f_x = f(x)
         grad_norm = np.linalg.norm(g)
         eta = min(cg_tol, grad_norm)
 
@@ -98,7 +109,10 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             success = True
             break
 
-        Av = lambda d: hessvec_fn(x, d)
+        if mode == 'exact_grad_fd_hessian':
+            Av = lambda d: hessvec_fn(x, g, d)
+        else:
+            Av = lambda d: hessvec_fn(x, d) # type: ignore
 
         # conjugate_gradient è già definita nei tuoi helpers
         p, cg_iter = conjugate_gradient_hess_vect_prod(grad_x0=g,
@@ -113,7 +127,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             success = False
             break
 
-        f_x = f(x)
+        
         alpha = armijo_backtracking(
             f, x, f_x, g, p,
             init_alpha=alpha0,

@@ -72,7 +72,7 @@ class BroydenTridiagonal:
 
         return g
 
-
+    # CHECK THAT IT IS COMPUTED FROM THE PROBLEM WITH 0.5 in the formula
     def hess_exact(self, x):
         x = np.asarray(x, dtype=float)
         n = x.size
@@ -85,7 +85,7 @@ class BroydenTridiagonal:
 
             # gradients of phi_i (i+1,i, i+1)
             g_im1 = -1.0
-            g_i = 3.0 -4.0 * xi
+            g_i = 3.0 - 4.0 * xi
             g_ip1 = -2.0
 
             # vector of non-zero and indices

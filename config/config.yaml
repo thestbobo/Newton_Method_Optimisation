@@ -14,7 +14,7 @@ run:
 line_search:
   type: armijo
   alpha0: 1.0        # initial step length
-  rho: 0.5           # step reduction factor
+  rho: 0.5        # step reduction factor
   c: 1e-4            # Armijo parameter
   max_ls_iter: 20
 
@@ -42,7 +42,7 @@ modified_newton:
 
 truncated_newton:
   cg:
-    max_iters: 50           # iterazioni interne CG (puoi testare 20, 50, 100)
+    max_iters: 100           # iterazioni interne CG (puoi testare 20, 50, 100)
     tol: 0.01            # tolerance CG -> (0.5 was way too loose -> (0.1:loose but ok, 0.01:typical, 0.001:good))
     use_preconditioning: false  # se vuoi aggiungere un precondizionatore
   hessvec_source:

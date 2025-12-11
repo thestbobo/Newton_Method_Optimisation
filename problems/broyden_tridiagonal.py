@@ -1,4 +1,8 @@
 import numpy as np
+from scipy.sparse import diags
+
+from numba import njit
+
 
 class BroydenTridiagonal:
 
@@ -147,6 +151,187 @@ class BroydenTridiagonal:
             Hv[i] += f[i] * (-4.0) * v[i]
 
         return Hv
+    
+    
+    def _broyden_residual(self, x):
+        x = self._as_array(x)
+        n = self.n
+        f = np.empty(n, dtype=float)
+
+        for k in range(n):
+            xk = x[k]
+            xm1 = x[k - 1] if k > 0 else 0.0
+            xp1 = x[k + 1] if k < n - 1 else 0.0
+
+            tmp = (3.0 - 2.0 * xk) * xk - xm1 - 2.0 * xp1 + 1.0
+            f[k] = 0.5 * tmp*tmp
+
+        return f
+    
+
+    def broyden_f(self, x):
+        x = np.asarray(x, dtype=float)
+        n = x.size
+        x_ext = np.empty(n + 2, dtype=float)
+        x_ext[0] = 0.0
+        x_ext[-1] = 0.0
+        x_ext[1:-1] = x
+        # f_k per k=1..n
+        f = (3 - 2*x_ext[1:-1]) * x_ext[1:-1] - x_ext[0:-2] - 2*x_ext[2:] + 1
+        return f
+
+    def F_from_f(self, f):
+        return 0.5 * np.dot(f, f)
+    
+    def F(self, xvec):
+        return self.F_from_f(self.broyden_f(xvec))
+
+
+    def fd_gradient(self, x, h):
+        x = np.asarray(x, dtype=float)
+        n = x.size
+        f = self.broyden_f(x)
+        g = np.zeros_like(x)
+        
+        f_im1 = f[0:-2]
+        f_i   = f[1:-1]
+        f_ip1 = f[2:]
+        x_i   = x[1:-1]
+
+        g[1:-1] = (-4.0 * f_i * x_i
+                + 3.0 * f_i
+                - 2.0 * f_im1
+                - 1.0 * f_ip1
+                + h**2 * (8.0 * x_i - 6.0))
+
+    
+        e0 = np.zeros_like(x); e0[0] = 1.0
+        en = np.zeros_like(x); en[-1] = 1.0
+        g[0]  = (self.F(x + h*e0) - self.F(x - h*e0)) / (2*h)
+        g[-1] = (self.F(x + h*en) - self.F(x - h*en)) / (2*h)
+
+        return g
+
+           
+
+    def fd_hessian_from_grad(self, x, grad, h):
+        n = x.shape[0]
+        diag0 = np.zeros(n)
+        diag1 = np.zeros(n-1)
+        diag2 = np.zeros(n-2)
+
+        h0 = h   # <-- Salvo l'h originale (fondamentale)
+
+        for j in range(0, n):
+
+            g_idx_min = max(0, j-2)
+            g_idx_max = min(j+2, n-1)
+            g_interest = grad[g_idx_min:g_idx_max+1]
+
+            pert_vec = np.zeros_like(g_interest)
+
+            # ----------- PARTE +h (NON modificare h!) -------------
+            if j == 0:
+                pert_vec[0] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 8*x[j+1]*h0 + 6*h0
+                pert_vec[1] = 4*(x[j] + h0)**2 - 9*h0 + 4*x[j+1]*h0
+                pert_vec[2] = 2*h0
+
+            elif j == 1:
+                pert_vec[0] = 2*(x[j] + h0)**2 - 9*h0 + 8*x[j-1]*h0
+                pert_vec[1] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 10*h0 + 4*x[j-1]*h0 + 8*x[j+1]*h0
+                pert_vec[2] = 4*(x[j] + h0)**2 - 9*h0 + 4*x[j-1]*h0
+                pert_vec[3] = 2*h0
+
+            elif j == n-2:
+                pert_vec[0] = 2*h0
+                pert_vec[1] = 2*(x[j] + h0)**2 - 9*h0 + 8*x[j-1]*h0
+                pert_vec[2] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 10*h0 + 4*x[j-1]*h0 + 8*x[j+1]*h0
+                pert_vec[3] = 4*(x[j] + h0)**2 - 9*h0 + 4*x[j+1]*h0
+
+            elif j == n-1:
+                pert_vec[0] = 2*h0
+                pert_vec[1] = 2*(x[j] + h0)**2 - 9*h0 + 8*x[j-1]*h0
+                pert_vec[2] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 9*h0 + 4*x[j-1]*h0
+
+            else:
+                pert_vec[0] = 2*h0
+                pert_vec[1] = 2*(x[j] + h0)**2 - 9*h0 + 8*x[j-1]*h0
+                pert_vec[2] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 10*h0 + 4*x[j-1]*h0 + 8*x[j+1]*h0
+                pert_vec[3] = 4*(x[j] + h0)**2 - 9*h0 + 4*x[j+1]*h0
+                pert_vec[4] = 2*h0
+
+            g_ph = g_interest + pert_vec
+
+            # ---------- PARTE -h (uso -h0, NON modifico h) ------------
+            pert_vec = np.zeros_like(g_interest)  # reset
+            hm = -h0   # <-- uso h negativo esplicito
+
+            if j == 0:
+                pert_vec[0] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 8*x[j+1]*hm + 6*hm
+                pert_vec[1] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j+1]*hm
+                pert_vec[2] = 2*hm
+
+            elif j == 1:
+                pert_vec[0] = 2*(x[j] + hm)**2 - 9*hm + 8*x[j-1]*hm
+                pert_vec[1] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 10*hm + 4*x[j-1]*hm + 8*x[j+1]*hm
+                pert_vec[2] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j+1]*hm
+                pert_vec[3] = 2*hm
+
+            elif j == n-2:
+                pert_vec[0] = 2*hm
+                pert_vec[1] = 2*(x[j] + hm)**2 - 9*hm + 8*x[j-1]*hm
+                pert_vec[2] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 10*hm + 4*x[j-1]*hm + 8*x[j+1]*hm
+                pert_vec[3] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j+1]*hm
+
+            elif j == n-1:
+                pert_vec[0] = 2*hm
+                pert_vec[1] = 2*(x[j] + hm)**2 - 9*hm + 8*x[j-1]*hm
+                pert_vec[2] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 9*hm + 4*x[j-1]*hm
+
+            else:
+                pert_vec[0] = 2*hm
+                pert_vec[1] = 2*(x[j] + hm)**2 - 9*hm + 8*x[j-1]*hm
+                pert_vec[2] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 10*hm + 4*x[j-1]*hm + 8*x[j+1]*hm
+                pert_vec[3] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j+1]*hm
+                pert_vec[4] = 2*hm
+
+            g_mh = g_interest + pert_vec   # <-- CORREZIONE SIGNO!
+
+            # ---------- DIFFERENZA CENTRATA CORRETTA ----------
+            hess_col = (g_ph - g_mh) / (2*h0)   # <-- h0 fisso
+
+            # ---------- ASSEGNAZIONE DIAGONALI (come nel tuo codice) ----------
+            if j == 0:
+                diag0[j] = hess_col[0]
+                diag1[j] = hess_col[1]
+                diag2[j] = hess_col[2]
+
+            elif j == 1:
+                diag0[j] = hess_col[1]
+                diag1[j] = hess_col[2]
+                diag2[j] = hess_col[3]
+
+            elif j == n-2:
+                diag0[j] = hess_col[2]
+                diag1[j] = hess_col[3]
+
+            elif j == n - 1:
+                diag0[j] = hess_col[2]
+
+            else:
+                diag0[j] = hess_col[2]
+                diag1[j] = hess_col[3]
+                diag2[j] = hess_col[4]
+
+        diagonals = [diag2, diag1, diag0, diag1, diag2]
+        offsets = [-2, -1, 0, 1, 2]
+
+        H = diags(diagonals, offsets)  # type: ignore
+        return H
+
+
+
+
 
 
 

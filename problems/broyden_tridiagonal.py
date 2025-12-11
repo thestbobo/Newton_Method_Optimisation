@@ -1,8 +1,6 @@
 import numpy as np
 from scipy.sparse import diags
 
-from numba import njit
-
 
 class BroydenTridiagonal:
 
@@ -25,17 +23,14 @@ class BroydenTridiagonal:
 
     # problem definition
     def broyden_residual(self, x):
-        x = self._as_array(x)
-        n = self.n
-        f = np.empty(n, dtype=float)
-
-        for k in range(n):
-            xk = x[k]
-            xm1 = x[k - 1] if k > 0 else 0.0
-            xp1 = x[k + 1] if k < n - 1 else 0.0
-
-            f[k] = (3.0 - 2.0 * xk) * xk - xm1 - 2.0 * xp1 + 1.0
-
+        x = np.asarray(x, dtype=float)
+        n = x.size
+        x_ext = np.empty(n + 2, dtype=float)
+        x_ext[0] = 0.0
+        x_ext[-1] = 0.0
+        x_ext[1:-1] = x
+        # f_k per k=1..n
+        f = (3 - 2*x_ext[1:-1]) * x_ext[1:-1] - x_ext[0:-2] - 2*x_ext[2:] + 1
         return f
 
 
@@ -169,28 +164,18 @@ class BroydenTridiagonal:
         return f
     
 
-    def broyden_f(self, x):
-        x = np.asarray(x, dtype=float)
-        n = x.size
-        x_ext = np.empty(n + 2, dtype=float)
-        x_ext[0] = 0.0
-        x_ext[-1] = 0.0
-        x_ext[1:-1] = x
-        # f_k per k=1..n
-        f = (3 - 2*x_ext[1:-1]) * x_ext[1:-1] - x_ext[0:-2] - 2*x_ext[2:] + 1
-        return f
-
     def F_from_f(self, f):
         return 0.5 * np.dot(f, f)
     
+
     def F(self, xvec):
-        return self.F_from_f(self.broyden_f(xvec))
+        return self.F_from_f(self.broyden_residual(xvec))
 
 
     def fd_gradient(self, x, h):
         x = np.asarray(x, dtype=float)
         n = x.size
-        f = self.broyden_f(x)
+        f = self.broyden_residual(x)
         g = np.zeros_like(x)
         
         f_im1 = f[0:-2]
@@ -212,7 +197,6 @@ class BroydenTridiagonal:
 
         return g
 
-           
 
     def fd_hessian_from_grad(self, x, grad, h):
         n = x.shape[0]
@@ -222,11 +206,13 @@ class BroydenTridiagonal:
 
         h0 = h   # <-- Salvo l'h originale (fondamentale)
 
+        g = grad(x)
+
         for j in range(0, n):
 
             g_idx_min = max(0, j-2)
             g_idx_max = min(j+2, n-1)
-            g_interest = grad[g_idx_min:g_idx_max+1]
+            g_interest = g[g_idx_min:g_idx_max+1]
 
             pert_vec = np.zeros_like(g_interest)
 

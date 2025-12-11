@@ -68,7 +68,6 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             return hessvec_fd_from_grad(f, grad_fn, x, v, h, forward_backward=-1)
 
     elif mode == 'fd_all':
-        print('fd_all')
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
         grad_fn = lambda x: problem.fd_gradient(x, h=h)
@@ -81,8 +80,6 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         
         def hessvec_fn(x, g, v):
             return problem.fd_hessian_from_grad(x, g, h) @ v
-        
-        
         
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")

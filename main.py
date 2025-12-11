@@ -65,7 +65,9 @@ def main(config):
     for x0, start_id in starts:
         # Modified Newton
         if 'mn' in methods:
+            print("Method: Modified Newton")
             res_mn = solve_modified_newton(problem, x0, config, h=h, relative=relative)
+            print("Modified Newton: finished")
             key_mn = (problem_name, n, mode, 'mn', start_id)
             all_results[key_mn] = res_mn
 

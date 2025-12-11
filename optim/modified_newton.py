@@ -1,62 +1,87 @@
 import numpy as np
+import scipy.sparse as sp
+from scipy.linalg import cholesky_banded
+from scipy.sparse.linalg import spsolve
 
+from problems.broyden_tridiagonal import BroydenTridiagonal
 from linesearch.backtracking import armijo_backtracking
 
-
-import numpy as np
-
-def _modify_to_spd(H, lam_init, lam_factor, lam_max):
+            
+def _modify_to_spd(H, lam_init, lam_factor, lam_max, max_tries=50):
     """
-    Modify (approximately symmetric) Hessian H to be SPD by adding λ I.
+    Modify sparse (banded / dia) Hessian H to be SPD by adding λI.
 
-    Parameters
-    ----------
-    H : (n, n) array_like
-        Hessian (not necessarily SPD). Assumed square.
-    lam_init : float
-        Initial positive regularization parameter λ (used after a first failure).
-    lam_factor : float
-        Multiplicative factor > 1 to increase λ when Cholesky fails.
-    lam_max : float
-        Maximum allowed λ. If exceeded, we give up (spd_ok = False).
+    H is assumed symmetric banded, stored as scipy.sparse.dia_matrix
+    with a small bandwidth (e.g. Broyden_tridiagonal: 5 diagonals).
 
-    Returns
-    -------
-    H_mod : (n, n) ndarray
-        Modified matrix H + λ I that is SPD (if spd_ok=True), or last tried one.
-    lambda_used : float
-        The λ used in the final matrix.
-    spd_ok : bool
-        True if we found an SPD matrix with λ ≤ lam_max, False otherwise.
+    We NEVER build a full n x n dense matrix.
+    We only build a (u+1) x n banded array for Cholesky,
+    where u is the lower bandwidth (e.g. u = 2 for 5 diagonals).
     """
-    H = np.asarray(H, dtype=float)
+
+    # Make sure we work in DIA format (cheap view)
+    H = H.todia()
     n = H.shape[0]
 
-    # Symmetrize to remove small asymmetries from numerical errors
-    H = 0.5 * (H + H.T)
+    # Convert λ parameters to floats (robust against YAML strings)
+    lam = float(lam_init)
+    lam_factor = float(lam_factor)
+    lam_max = float(lam_max)
 
-    # Try first with λ = 0 (i.e., original Hessian)
-    lam = 0.0
+    # Identity in DIA form (keeps everything sparse)
+    I = sp.eye(n, format="dia")
 
-    while True:
+    # Determine lower bandwidth u from the DIA offsets
+    # offsets <= 0 are main and lower diagonals; min(offsets) is the furthest below
+    offsets = H.offsets.astype(int)
+    lower_offsets = offsets[offsets <= 0]
+    if lower_offsets.size == 0:
+        # No lower diagonals? then bandwidth is 0
+        u = 0
+    else:
+        u = int(-lower_offsets.min())   # e.g. offsets [-2,-1,0,1,2] -> u = 2
+
+    # Helper: build banded 'ab' for cholesky_banded (lower form)
+    def build_banded_lower(H_dia):
+        """
+        H_dia: symmetric banded matrix in DIA form.
+        Returns ab with shape (u+1, n) for cholesky_banded(lower=True),
+        using the convention:
+            ab[i-j, j] = a[i,j]  for i >= j, i-j <= u
+        """
+        ab = np.zeros((u + 1, n), dtype=H_dia.data.dtype)
+
+        # k = 0..u: lower diagonal offset -k
+        # H_dia.diagonal(-k)[j] = a[j+k, j]  (for j = 0..n-k-1)
+        for k in range(u + 1):
+            d = H_dia.diagonal(-k)      # length n-k
+            ab[k, 0: n - k] = d
+
+        return ab
+
+    H_base = H
+    H_mod = H_base.copy()
+    spd_ok = False
+
+    for _ in range(max_tries):
+        # Build banded representation for current H_mod
+        ab = build_banded_lower(H_mod)
+
         try:
-            # Try Cholesky: succeeds iff H + λI is SPD
-            H_mod = H + lam * np.eye(n)
-            np.linalg.cholesky(H_mod)
-            # If we get here, it's SPD
-            return H_mod, lam, True
-
+            # Try Cholesky factorisation in banded form
+            # This does NOT build an n x n dense matrix, only (u+1) x n
+            cholesky_banded(ab, lower=True, check_finite=False)
+            spd_ok = True
+            break
         except np.linalg.LinAlgError:
-            # Need to increase λ and try again
-            if lam == 0.0:
-                lam = lam_init
-            else:
-                lam *= lam_factor
-
+            # Not SPD: increase λ and try H + λ I
+            lam *= lam_factor
             if lam > lam_max:
-                # Give up: return last attempt but flag failure
-                H_mod = H + lam * np.eye(n)
-                return H_mod, lam, False
+                # Give up: return last H_mod and spd_ok=False
+                break
+            H_mod = H_base + lam * I
+
+    return H_mod, lam, spd_ok
 
 
 def solve_modified_newton(problem, x0, config, h=None, relative=False):
@@ -113,13 +138,13 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-        # hess_fn = lambda x: fd_hess_from_grad(grad_fn, x, h=h, relative=relative)
+        hess_fn = lambda x: problem.fd_hessian_from_grad(x=x, grad=grad_fn, h=h)
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        # grad_fn = lambda x: fd_grad_fwd(f, x, h=h, relative=relative)
-        # hess_fn = lambda x: fd_hess_from_grad(grad_fn, x, h=h, relative=relative)
+        grad_fn = lambda x: problem.fd_gradient(x, h=h)
+        hess_fn = lambda x: problem.fd_hessian_from_grad(x=x, grad=grad_fn, h=h)
 
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
@@ -134,6 +159,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     total_backtracks = 0
 
     for k in range(1, max_iters + 1):
+        print(f"iter: {k}")
         g = grad_fn(x)
         grad_norm = np.linalg.norm(g)
 
@@ -143,18 +169,26 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if grad_norm < float(tol):
             success = True
             break
-
+        print("Computing Hessian...")
         H = hess_fn(x)
-
-        # SPD-fix via modify_to_spd (già esistente nel tuo progetto)
+        print("...finished")
+        
+        # SPD-fix via modify_to_spd
+        print("modify to spd...")
         H_mod, lambda_used, spd_ok = _modify_to_spd(H, lam_init, lam_factor, lam_max)
+        print("...finished")
         lambda_last = lambda_used
         if not spd_ok:
             success = False
             break
 
         # risolve H_mod p = -g
-        p = np.linalg.solve(H_mod, -g)
+        if sp.issparse(H_mod):
+            # Use sparse direct solver (SuperLU)
+            p = spsolve(H_mod.tocsc(), -g)
+        else:
+            # Fallback for small dense problems
+            p = np.linalg.solve(H_mod, -g)
 
         # line search di Armijo (armijo_backtracking già esiste)
         f_x = f(x)

@@ -93,31 +93,54 @@ def plot_rates_for_dimension(all_results, config,
 
     series = []
     # all_results ha key: (problem_name, n, mode, method, start_id)
+    series = []
     for (p_name, nn, m_mode, m_method, start_id), res in all_results.items():
         if p_name != problem_name or nn != n or m_mode != mode or m_method != method:
             continue
         if not res.get('success', False):
             continue
-        if 'rates' not in res:
-            continue
-        series.append((start_id, np.array(res['rates'])))
+        
+        # Recupera rates (gradiente) e f_values (funzione)
+        rates = res.get('rates', [])
+        f_vals = res.get('f_values', []) # <--- NUOVO
+        series.append((start_id, np.array(rates), np.array(f_vals)))
 
     if not series:
         return
 
-    plt.figure(figsize=(8, 6))
+    # Creazione Plot
+    fig, ax1 = plt.subplots(figsize=(8, 6))
+    
+    # Colori distintivi
+    color_grad = 'tab:blue'
+    color_f = 'tab:orange'
 
-    for start_id, rates in series:
-        iters = np.arange(1, len(rates) + 1)
-        if fig_cfg.get('use_log_scale', True):
-            plt.semilogy(iters, rates, label=f'start {start_id}')
+    # Plot solo del primo start (o loop se vuoi vederli tutti, ma diventa confuso con due assi)
+    # Per chiarezza, qui plotto il primo risultato convergente trovato
+    start_id, rates, f_vals = series[0]
+    iters = np.arange(1, len(rates) + 1)
+
+    # ASSE 1 (Sinistra): Gradient Norm (Blu)
+    ax1.semilogy(iters, rates, color=color_grad, label=fr"$\|\nabla f(x_k)\|$ (Start {start_id})")
+    ax1.set_xlabel("Iteration")
+    ax1.set_ylabel(r"Gradient Norm $\|\nabla f(x_k)\|$", color=color_grad)
+    ax1.tick_params(axis='y', labelcolor=color_grad)
+    ax1.grid(True, which="both", alpha=0.3)
+
+    # ASSE 2 (Destra): Function Value (Arancione) - SOLO SE ESISTONO DATI
+    if len(f_vals) > 0:
+        ax2 = ax1.twinx()  # Crea asse gemello
+        # Se f(x) è sempre positivo (come nei minimi quadrati), usiamo semilogy, altrimenti plot lineare
+        if np.all(f_vals > 0):
+            ax2.semilogy(iters, f_vals, color=color_f, linestyle='--', linewidth=2, label=fr"$f(x_k)$")
         else:
-            plt.plot(iters, rates, label=f'start {start_id}')
+            ax2.plot(iters, f_vals, color=color_f, linestyle='--', linewidth=2, label=fr"$f(x_k)$")
+        
+        ax2.set_ylabel(r"Function Value $f(x_k)$", color=color_f)
+        ax2.tick_params(axis='y', labelcolor=color_f)
+        # Opzionale: aggiungi una legenda unificata se serve, o lascia le etichette assi
 
-    plt.xlabel("Iteration")
-    plt.ylabel(r"$\|\nabla f(x_k)\|$")
-    plt.title(f"{problem_name}, n={n}, mode={mode}, method={method} – gradient norm")
-    plt.legend(loc='best', fontsize=8)
+    plt.title(f"{problem_name}, n={n}, {method}")
     plt.tight_layout()
 
     # ---- SALVATAGGIO FIGURA ----
@@ -128,7 +151,7 @@ def plot_rates_for_dimension(all_results, config,
 
     # 2) salvataggio in ogni cartella per start
     root_output = "output"
-    for start_id, _rates in series:
+    for start_id, _rates, _fvals in series:
         exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start_id}"
         exp_dir = os.path.join(root_output, exp_name)
         os.makedirs(exp_dir, exist_ok=True)

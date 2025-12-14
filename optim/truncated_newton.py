@@ -90,6 +90,8 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
     path = []
     rates = []
+    f_values = []
+
     total_cg_iters = 0
 
     for k in range(1, max_iters + 1):
@@ -101,6 +103,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
         if save_rates:
             rates.append(grad_norm)
+            f_values.append(f(x))
 
         if grad_norm < float(tol):
             success = True
@@ -158,6 +161,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
     if save_rates:
         result['rates'] = np.array(rates)
+        result['f_values'] = np.array(f_values)
 
     return result
 

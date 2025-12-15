@@ -19,7 +19,7 @@ line_search:
   max_ls_iter: 20
 
 derivatives:
-  mode: fd_all       # {exact, fd_hessian, fd_all, exact_grad_fd_hessian} → per gestire i vari esperimenti
+  mode: exact       # {exact, fd_hessian, fd_all, exact_grad_fd_hessian} → per gestire i vari esperimenti
   # per finite differences:
   h_exponents: 4             #[4, 8, 12]    genera h = 10^{-k}
   relative:                 #[false, true]   # h_i = h  oppure h_i = h*|x_i|
@@ -42,13 +42,18 @@ modified_newton:
 
 truncated_newton:
   cg:
-    max_iters: 100           # iterazioni interne CG (puoi testare 20, 50, 100)
+    max_iters: 20           # iterazioni interne CG (puoi testare 20, 50, 100)
     tol: 0.01            # tolerance CG -> (0.5 was way too loose -> (0.1:loose but ok, 0.01:typical, 0.001:good))
     use_preconditioning: false  # se vuoi aggiungere un precondizionatore
   hessvec_source:
     exact: hessvec_exact
     fd_hessian: hessvec_fd_from_grad  # usando grad_exact
     fd_all: hessvec_fd_from_grad      # usando grad_fd
+  spd_fix:
+    lambda_init: 1e-6       # primo λ da aggiungere sulla diagonale
+    lambda_factor: 10.0     # se Cholesky fallisce → λ *= factor
+    lambda_max: 1e8         # sicurezza: se superi → segnali failure
+    max_restarts: 6
 
 logging:
   level: info

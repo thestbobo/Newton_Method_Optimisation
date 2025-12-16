@@ -113,7 +113,6 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             Av = lambda d: hessvec_fn(x, g, d)
         else:
             Av = lambda d: hessvec_fn(x, d) # type: ignore
-
         # conjugate_gradient è già definita nei tuoi helpers
         p, cg_iter = conjugate_gradient_hess_vect_prod(grad_x0=g,
                                                        Av=Av,

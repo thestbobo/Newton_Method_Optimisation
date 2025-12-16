@@ -90,8 +90,6 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
     path = []
     rates = []
-    f_values = []
-
     total_cg_iters = 0
 
     for k in range(1, max_iters + 1):
@@ -103,7 +101,6 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
         if save_rates:
             rates.append(grad_norm)
-            f_values.append(f(x))
 
         if grad_norm < float(tol):
             success = True
@@ -113,6 +110,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             Av = lambda d: hessvec_fn(x, g, d)
         else:
             Av = lambda d: hessvec_fn(x, d) # type: ignore
+
         # conjugate_gradient è già definita nei tuoi helpers
         p, cg_iter = conjugate_gradient_hess_vect_prod(grad_x0=g,
                                                        Av=Av,
@@ -160,7 +158,6 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
     if save_rates:
         result['rates'] = np.array(rates)
-        result['f_values'] = np.array(f_values)
 
     return result
 

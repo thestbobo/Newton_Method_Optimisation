@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.sparse import diags
 
 class ChainedSerpentine:
     """
@@ -173,5 +174,77 @@ class ChainedSerpentine:
         Hv[1:] += e * v[:-1]
 
         return Hv
+    
+    
+    def fd_grad(self, x, h):
+        x = np.asarray(x, dtype=float)
+        n = x.size
+
+        xi   = x[:-1]
+        xip1 = x[1:]
+
+        s  = 2*xi/(1 + xi**2)
+        r  = 10*(s - xip1)      # r_i
+        p  = xi - 1             # p_i
+
+        g = np.zeros_like(x)
+
+        # ===== contributo p_j =====
+        g[:-1] += p
+
+        # ===== contributo r_{j-1} =====
+        g[1:n-1] += -10 * r[:-1]
+
+        # ===== contributo r_j =====
+        sp = 2*(xi + h)/(1 + (xi + h)**2)
+        sm = 2*(xi - h)/(1 + (xi - h)**2)
+
+        drp = 10*(sp - s)
+        drm = 10*(sm - s)
+
+        g[:-1] += (r * (drp - drm)) / (2*h)
+
+        # ===== contributo finale su x_n =====
+        g[-1] += -10 * r[-1]
+
+        return g
+    
+
+
+    def fd_hessian(self, x, h):
+        x = np.asarray(x, dtype=float)
+        n = x.size
+
+        xi = x[:-1]
+
+        s  = 2*xi/(1 + xi**2)
+        ds = 2*(1 - xi**2)/(1 + xi**2)**2
+
+        r = 10*(s - x[1:])
+
+        main  = np.zeros(n)
+        upper = np.zeros(n-1)
+        lower = np.zeros(n-1)
+
+        # ----- diagonale principale -----
+        main[:-1] += 1                          # ∂p_j/∂x_j
+        main[:-1] += 100 * r * ds               # ∂(r_j a_j)/∂x_j
+        main[-1] = 0
+
+        # ----- sotto-diagonale (j = 1 .. n-2) -----
+        lower[:-1] = -100 * ds[:-1]
+
+        # ----- sopra-diagonale (j = 0 .. n-2) -----
+        upper[:] = -10
+
+        return diags(
+            diagonals=[lower, main, upper],
+            offsets=[-1, 0, 1], # type: ignore
+            format='csr'
+        )
+
+
+
+
 
 

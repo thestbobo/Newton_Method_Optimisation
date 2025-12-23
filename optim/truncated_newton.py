@@ -69,23 +69,16 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-
-        def hessvec_fn(x, v): # type: ignore
-            return hessvec_fd_from_grad(f, grad_fn, x, v, h, forward_backward=-1)
+        def hessvec_fn(x, g, v): # type: ignore
+            return problem.fd_hessian_from_grad(x, g, h) @ v
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
         grad_fn = lambda x: problem.fd_gradient(x, h=h)
 
-        def hessvec_fn(x, v): # type: ignore
-            return hessvec_fd_from_grad(f, grad_fn, x, v, h=h, forward_backward=-1)
-        
-    elif mode == 'exact_grad_fd_hessian':
-        grad_fn = problem.grad_exact
-        
-        def hessvec_fn(x, g, v):
-            return problem.fd_hessian_from_grad(x, g, h) @ v
+        def hessvec_fn(x, g, v): # type: ignore
+            return problem.fd_hessian(x, g, h) @ v
         
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
@@ -112,8 +105,10 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             success = True
             break
         # base Hessian-vector product (no damping)
-        if mode == 'exact_grad_fd_hessian':
-            Av_base = lambda d: hessvec_fn(x, g, d)
+        if mode == 'fd_hessian':
+            Av_base = lambda d: hessvec_fn(x, g, d) # type: ignore
+        elif mode == 'fd_all':
+            Av_base = lambda d: hessvec_fn(x, g, d) # type: ignore
         else:
             Av_base = lambda d: hessvec_fn(x, d)  # type: ignore
 

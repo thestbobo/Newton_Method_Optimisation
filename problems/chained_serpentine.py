@@ -176,7 +176,7 @@ class ChainedSerpentine:
         return Hv
     
     
-    def fd_grad(self, x, h):
+    def fd_gradient(self, x, h):
         x = np.asarray(x, dtype=float)
         n = x.size
 
@@ -210,15 +210,69 @@ class ChainedSerpentine:
         return g
 
 
-    def _grad_i(self, xm, x, xp):
-        pass
+    def grad_i(self, xm, x, xp):
+        if xm is None:
+            g_i = 100*((2*x)/(1+x**2) - xp) * ((2*(1-x**2)) / (1 + x**2)**2) + (x - 1)
+        elif xp is None:
+            g_i = -100 *((2*xm) / (1+xm**2) - x)
+        else:
+            g_i = 100*((2*x)/(1 + x**2) - xp) * ((2*(1-x**2)) /(1+x**2)**2) + (x - 1) - 100*((2*xm)/(1+xm**2) - x)
+        
+        return g_i
     
-    
-    def fd_hessian(self, x, h):
-        pass
 
-        
-        
+
+    def fd_hessian(self, x, g, h):
+        n = x.shape[0]
+
+        diag_main  = np.zeros(n)
+        diag_lower = np.zeros(n-1)
+        diag_upper = np.zeros(n-1)
+
+        for j in range(n):
+
+            xph = x[j] + h
+            xmh = x[j] - h
+
+            if j == 0:
+                gp = self.grad_i(None, xph, x[j+1])
+                gm = self.grad_i(None, xmh, x[j+1])
+            elif j == n-1:
+                gp = self.grad_i(x[j-1], xph, None)
+                gm = self.grad_i(x[j-1], xmh, None)
+            else:
+                gp = self.grad_i(x[j-1], xph, x[j+1])
+                gm = self.grad_i(x[j-1], xmh, x[j+1])
+
+            diag_main[j] = (gp - gm) / (2*h)
+
+            if j > 0:
+                if j-1 == 0:
+                    gp = self.grad_i(None, x[j-1], xph)
+                    gm = self.grad_i(None, x[j-1], xmh)
+                else:
+                    gp = self.grad_i(x[j-2], x[j-1], xph)
+                    gm = self.grad_i(x[j-2], x[j-1], xmh)
+
+                diag_lower[j-1] = (gp - gm) / (2*h)
+
+            if j < n-1:
+                if j+1 == n-1:
+                    gp = self.grad_i(xph, x[j+1], None)
+                    gm = self.grad_i(xmh, x[j+1], None)
+                else:
+                    gp = self.grad_i(xph, x[j+1], x[j+2])
+                    gm = self.grad_i(xmh, x[j+1], x[j+2])
+
+                diag_upper[j] = (gp - gm) / (2*h)
+
+        return diags(
+            diagonals=[diag_lower, diag_main, diag_upper],
+            offsets=[-1, 0, 1], # type: ignore
+            format="csr"
+        )
+
+                
         
         
 

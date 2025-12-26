@@ -198,7 +198,7 @@ class BroydenTridiagonal:
         return g
 
 
-    def fd_hessian_from_grad(self, x, grad, h):
+    def fd_hessian(self, x, grad, h):
         n = x.shape[0]
         diag0 = np.zeros(n)
         diag1 = np.zeros(n-1)
@@ -206,13 +206,12 @@ class BroydenTridiagonal:
 
         h0 = h   # <-- Salvo l'h originale (fondamentale)
 
-        g = grad(x)
 
         for j in range(0, n):
 
             g_idx_min = max(0, j-2)
             g_idx_max = min(j+2, n-1)
-            g_interest = g[g_idx_min:g_idx_max+1]
+            g_interest = grad[g_idx_min:g_idx_max+1]
 
             pert_vec = np.zeros_like(g_interest)
 

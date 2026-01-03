@@ -96,74 +96,115 @@ def conjugate_gradient_hess_vect_prod_old(x0, grad_x0, max_iter, eta, hess_vect_
 
 
 
-def conjugate_gradient_hess_vect_prod(grad_x0, Av, max_iter, eta):
-    """
-    Parameters
-    ----------
-    grad_x : np.ndarray
-        Gradient at the current x (g).
-    Av : callable
-        Function that, given a direction d, returns H d.
-    max_iter : int
-        Maximum number of CG iterations.
-    eta : float
-        Inexact Newton tolerance, we stop when ||r_k|| <= eta * ||r_0||.
+import numpy as np
 
-    Returns
-    -------
-    p : np.ndarray
-        Approximate solution of H p = -grad_x.
-    k : int
-        Number of CG iterations performed.
-    """
+def conjugate_gradient_hess_vect_prod(grad_x0, Av, max_iter, eta):
     g = grad_x0
     b = -g
 
-    # initial guess p0 = 0
+    p = np.zeros_like(g)      # initial guess
+    r = b.copy()              # r0 = b - A p0 = b
+    r_norm0 = np.linalg.norm(r)
+
+    if r_norm0 == 0.0:
+        return p, 0, "converged"
+
+    d = r.copy()
+    rr = float(r @ r)
+
+    iters = 0
+
+    for _ in range(max_iter):
+        iters += 1
+        Ad = Av(d)
+
+        # NaN/inf guard (opzionale ma utile)
+        if not np.all(np.isfinite(Ad)):
+            return -g.copy(), iters, "breakdown"
+
+        dAd = float(d @ Ad)
+
+        # negative curvature / indefiniteness
+        if dAd <= 0.0:
+            if iters == 1:
+                return -g.copy(), iters, "neg_curv"
+            else:
+                return p, iters, "neg_curv"   # truncated CG direction (p so far)
+
+        alpha = rr / dAd
+        p = p + alpha * d
+
+        r = r - alpha * Ad
+        r_norm = np.linalg.norm(r)
+
+        # inexact Newton stopping
+        if r_norm <= eta * r_norm0:
+            # ensure descent (very important for line search)
+            if g @ p >= 0:
+                p = -g.copy()
+                return p, iters, "fallback_sd"
+            return p, iters, "converged"
+
+        rr_new = float(r @ r)
+        beta = rr_new / rr
+        d = r + beta * d
+        rr = rr_new
+
+    # max iters reached
+    if g @ p >= 0:
+        p = -g.copy()
+        return p, iters, "fallback_sd"
+    return p, iters, "max_iter"
+
+
+
+def pcg_hess_vect_prod(grad_x0, Av, Minv, max_iter, eta):
+    g = grad_x0
+    b = -g
     p = np.zeros_like(g)
 
     r = b.copy()
     r_norm0 = np.linalg.norm(r)
-
     if r_norm0 == 0.0:
         return p, 0
 
-    d = r.copy()
+    z = Minv(r)
+    d = z.copy()
+    rz = float(r @ z)
 
-    for k in range(max_iter):
-        Ad = Av(d)          # H d
-        dAd = d @ Ad
+    for it in range(1, max_iter + 1):
+        Ad = Av(d)
+        dAd = float(d @ Ad)
 
         # negative curvature
-        if dAd <= 0:
-            if k == 0:
+        if dAd <= 0.0:
+            print('Negative curvature')
+            if it == 1:
                 p = -g.copy()
-                k = 1
-            break
-
-        alpha = (r @ r) / dAd
-
-        # update solution
+            if g @ p >= 0:
+                p = -g.copy()
+            return p, it
+        alpha = rz / dAd
         p = p + alpha * d
+        r = r - alpha * Ad
 
-        # update residual: r_{k+1} = r_k - alpha * A d_k
-        new_r = r - alpha * Ad
+        if np.linalg.norm(r) <= eta * r_norm0:
+            if g @ p >= 0:
+                p = -g.copy()
+                print('fallback')
+            return p, it
 
-        # inexact Newton stpping criterion
-        if np.linalg.norm(new_r) <= eta * r_norm0:
-            r = new_r
-            k += 1
-            break
+        z_new = Minv(r)
+        rz_new = float(r @ z_new)
+        beta = rz_new / rz
 
-        beta = (new_r @ new_r) / (r @ r)
+        d = z_new + beta * d
+        z = z_new
+        rz = rz_new
 
-        d = new_r + beta * d
-        r = new_r
+    if g @ p >= 0:
+        p = -g.copy()
+        print('fallback')
+    return p, max_iter
 
-    if g @ p > 0:
-        p = -p
 
-    return p, k
-        
-             
-    

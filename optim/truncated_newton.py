@@ -1,7 +1,74 @@
 import numpy as np
-from differentation.finite_differences import fd_hessian, hessvec_fd_from_grad, fd_gradient
-from linesearch.backtracking import armijo_backtracking
-from optim.gradient_baseline import conjugate_gradient, conjugate_gradient_hess_vect_prod
+from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_search
+from optim.gradient_baseline import pcg_hess_vect_prod
+from collections import deque
+
+print("V4")
+
+def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
+    g = np.asarray(g, dtype=float)
+    gg = float(g @ g)
+    if gg < eps or s_prev is None:
+        return -g.copy()
+
+    s_prev = np.asarray(s_prev, dtype=float)
+    if np.linalg.norm(s_prev) < eps:
+        return -g.copy()
+
+    gs = float(g @ s_prev)
+    t = s_prev - (gs / gg) * g
+    tn = np.linalg.norm(t)
+    if tn < eps:
+        return -g.copy()
+
+    t = t * (tau * np.sqrt(gg) / tn)
+    p = t - gamma * g
+
+    if float(g @ p) >= 0.0:
+        p = -g.copy()
+    return p
+
+
+
+
+
+
+class PlateauDetector:
+    def __init__(self, window=50, plateau_rel=0.02, trend_rel=0.01, eps=1e-12):
+        self.window = window
+        self.plateau_rel = plateau_rel
+        self.trend_rel = trend_rel
+        self.eps = eps
+        self.buf = deque(maxlen=window)
+
+    def update(self, grad_norm):
+        self.buf.append(float(grad_norm))
+
+    def in_plateau(self):
+        if len(self.buf) < self.window:
+            return False
+
+        arr = np.array(self.buf, dtype=float)
+        mean_g = float(arr.mean())
+        g_last = float(arr[-1])
+
+        # "similar to mean" check
+        similar = abs(g_last - mean_g) <= self.plateau_rel * max(mean_g, self.eps)
+
+        # trend check: compare first half avg vs second half avg
+        half = self.window // 2
+        m1 = float(arr[:half].mean())
+        m2 = float(arr[half:].mean())
+
+        # If it is not decreasing enough, we call plateau
+        # (m2 close to m1 => no progress)
+        no_trend = abs(m2 - m1) <= self.trend_rel * max(mean_g, self.eps)
+
+        return similar and no_trend
+
+
+
+
 
 
 def solve_truncated_newton(problem, x0, config, h=None, relative=False):
@@ -27,6 +94,8 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     -------
     dict con info sul run (x finale, f, grad_norm, num_iters, num_cg_iters, ecc.).
     """
+    
+    # --------------------------------------- CONFIG ------------------------------------------------------
     mode = config['derivatives']['mode']  # 'exact', 'fd_hessian', 'fd_all'
     run_cfg = config['run']
     ls_cfg = config['line_search']
@@ -42,16 +111,10 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     c = ls_cfg['c']
     max_ls_iter = ls_cfg['max_ls_iter']
     
-    fw_bw = config['derivatives']['forward_backward']
 
     cg_max_iters = tn_cfg['cg']['max_iters']
-    cg_tol = tn_cfg['cg']['tol']
 
-    spd_cfg = config.get('truncated_newton', {}).get('spd_fix', {})
-    lambda_init = float(spd_cfg.get('lambda_init', 1e-6))
-    lambda_factor = float(spd_cfg.get('lambda_factor', 10.0))
-    lambda_max = float(spd_cfg.get('lambda_max', 1e8))
-    max_restarts = int(spd_cfg.get('max_restarts', 6))
+
 
     f = problem.f
 
@@ -83,20 +146,38 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
 
-    # --- main loop Truncated Newton ---
+    # ---------------------------------- main loop Truncated Newton (minimal) ----------------------------------------
     x = np.asarray(x0, dtype=float)
     n = x.size
+    plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
 
     path = []
     rates = []
     total_cg_iters = 0
 
+    alpha_prev = 1.0
+    s_prev = None  # previous actual step x_k - x_{k-1}
+
+    # forcing term params
+    eta_max   = 1e-1
+    eta_floor = 1e-12
+    eta_coeff = 1e-2
+
+    # tangential fallback params
+    tang_gamma = 0.2
+    tang_tau   = 1.0
+
+    # identity preconditioner for PCG
+    Minv_identity = lambda r: r
+    n_plateau = 0
+    
     for k in range(1, max_iters + 1):
-        # print(k)
         g = grad_fn(x)
         f_x = f(x)
         grad_norm = np.linalg.norm(g)
-        eta = min(cg_tol, grad_norm)
+        plateau.update(grad_norm)
+        #use_heuristic = plateau.in_plateau()
+        use_heuristic = False
 
         if save_rates:
             rates.append(grad_norm)
@@ -104,72 +185,96 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         if grad_norm < float(tol):
             success = True
             break
-        # base Hessian-vector product (no damping)
-        if mode == 'fd_hessian':
-            Av_base = lambda d: hessvec_fn(x, g, d) # type: ignore
-        elif mode == 'fd_all':
-            Av_base = lambda d: hessvec_fn(x, g, d) # type: ignore
+
+        # ---- forcing term eta_k ----
+        eta = eta_coeff * np.sqrt(grad_norm)
+        eta = min(eta, eta_max)
+        eta = max(eta, eta_floor)
+
+        # (se vuoi tenere il test)
+        if k > 300:
+            eta = 1e-5
+
+        cg_max_iters_eff = cg_max_iters
+        if eta < 2e-2:
+            cg_max_iters_eff = min(n, 3 * cg_max_iters)
+
+        # ---- Hessian-vector product ----
+        if mode in ("fd_hessian", "fd_all"):
+            Av = lambda d: hessvec_fn(x, g, d)  # type: ignore
         else:
-            Av_base = lambda d: hessvec_fn(x, d)  # type: ignore
+            Av = lambda d: hessvec_fn(x, d)     # type: ignore
 
-        # ---- Newton-CG with adaptive damping (H + lam I) ----
-        lam = lambda_init
-        p = None
-        cg_iter = 0
-
-        for _ in range(max_restarts + 1):
-            Av = (lambda d, lam=lam: Av_base(d) + lam * d)
-
-            p_try, cg_iter = conjugate_gradient_hess_vect_prod(
+        if use_heuristic:
+    # plateau detected -> force tangential heuristic direction
+            n_plateau += 1
+            p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
+            alpha = 1
+            cg_iter = 0
+        else:
+            # normal Newton-CG step
+            p_try, cg_iter = pcg_hess_vect_prod(
                 grad_x0=g,
                 Av=Av,
-                max_iter=cg_max_iters,
+                Minv=Minv_identity,
+                max_iter=cg_max_iters_eff,
                 eta=eta
             )
+            total_cg_iters += cg_iter
 
-            # signals of failure / poor direction
             pnorm = np.linalg.norm(p_try)
-            descent = np.dot(g, p_try) < 0
+            descent = (float(g @ p_try) < 0.0)
 
-            cg_capped = (cg_iter >= cg_max_iters)
-            tiny_step = (pnorm < 1e-16)
-
-            if (not cg_capped) and (not tiny_step) and descent:
+            if (pnorm < 1e-16) or (not descent):
+                p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
+                cg_iter = 0
+            else:
                 p = p_try
-                break
-
-            # if not ok -> increase damping
-            lam *= lambda_factor
-            if lam > lambda_max:
-                break
-
-        # fallback if we couldn't get a good Newton-CG direction
-        if p is None:
-            p = -g
-            cg_iter = 0  # optional: don't count CG if fallback
-
-        total_cg_iters += cg_iter
-
-        if np.linalg.norm(p) < 1e-16:
-            success = False
-            break
 
 
-        if np.dot(g, p) >= 0:
-            p = -g
-        
-        alpha = armijo_backtracking(
-            f, x, f_x, g, p,
-            init_alpha=alpha0,
-            rho=rho,
-            c=c,
-            max_iters=max_ls_iter
+        # ---- line search ----
+        if not use_heuristic:
+            alpha0 = min(1.0, 2.0 * alpha_prev)
+            
+            alpha = armijo_backtracking(
+                    f, x, f_x, g, p,
+                    init_alpha=alpha0,
+                    rho=rho,
+                    c=c,
+                    max_iters=max_ls_iter
+                )
+            
+            """
+            alpha, ok = strong_wolfe_line_search(
+                f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
             )
+            if not ok:
+                alpha = armijo_backtracking(
+                    f, x, f_x, g, p,
+                    init_alpha=alpha0,
+                    rho=rho,
+                    c=c,
+                    max_iters=max_ls_iter
+                )
+            """
+            
 
+        # ---- update x and store actual step ----
+        x_old = x
         x = x + alpha * p
+        s_prev = x - x_old
+        alpha_prev = alpha
 
         if save_paths_2d and n == 2:
             path.append(x.copy())
+
+        if k % 20 == 0:
+            #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
+                    #"cg", cg_iter, "eta", eta, "plateau", use_heuristic)
+            print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
+                    "cg", cg_iter, "eta", eta)
+
+
 
     else:
         success = False
@@ -185,7 +290,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         'num_cg_iters': total_cg_iters,
         'success': success,
     }
-
+    print('n_plateau', n_plateau)
     if save_paths_2d and n == 2:
         result['path'] = np.array(path)
 

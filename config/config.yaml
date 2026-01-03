@@ -1,11 +1,11 @@
 run:
-  problem:  broyden_tridiagonal                          # es. quad, ext_powell (entrambi presi da [1])
-  n_value: 100000                          # richiesto dall'assignment [2, 1000, 10000, 100000]
+  problem:  chained_serpentine           # es. quad, ext_powell (entrambi presi da [1])
+  n_value: 1000                          # richiesto dall'assignment [2, 1000, 10000, 100000]
   methods:  'tn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID
-  start_type: random        # {xbar, random}
+  start_type: xbar        # {xbar, random}
   random_id: 0            # IMPOSTARE 0 SE SI USA xbar, sennò 1,2,3,4,5 per ogni random
-  max_iters: 2000                     # 1000–2000 è ok per report
+  max_iters: 4000                     # 1000–2000 è ok per report
   tolerance: 1e-6                     # ||grad|| < tol
   num_random_starts: 5                # 5 starting points random + uno x̄ di default
   save_paths_2d: true                 # salva traiettorie per n = 2 per i plot
@@ -41,14 +41,26 @@ modified_newton:
     fd_all: fd_hess_from_grad  # ma usando grad_fd invece di grad_exact
 
 truncated_newton:
+  use_precontitioning: true  # enable preconditioning in TN
   cg:
-    max_iters: 20           # iterazioni interne CG (puoi testare 20, 50, 100)
-    tol: 0.01            # tolerance CG -> (0.5 was way too loose -> (0.1:loose but ok, 0.01:typical, 0.001:good))
-    use_preconditioning: false  # se vuoi aggiungere un precondizionatore
+    max_iters: 50           # iterazioni interne CG (puoi testare 20, 50, 100)
+    tol: 0.001            # tolerance CG -> (0.5 was way too loose -> (0.1:loose but ok, 0.01:typical, 0.001:good))
   hessvec_source:
     exact: hessvec_exact
     fd_hessian: hessvec_fd_from_grad  # usando grad_exact
     fd_all: hessvec_fd_from_grad      # usando grad_fd
+  preconditioning:
+    type: tridiagonal_exact  # {jacobi_hutchinson, tridiagonal_exact, dsprec}
+    jacobi_hutchinson:
+      num_probes: 16
+      eps: 1e-8
+      clip: [1e-12, 1e12]
+    tridiagonal_exact:
+      eps: 1e-8
+      max_shift_iters: 6
+    dsprec:
+      delta: 1e-6
+      lam: 0.0
   spd_fix:
     lambda_init: 1e-6       # primo λ da aggiungere sulla diagonale
     lambda_factor: 10.0     # se Cholesky fallisce → λ *= factor
@@ -88,4 +100,3 @@ postprocessing:
     rates:
       enabled: true
       use_log_scale: true
-

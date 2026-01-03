@@ -1,2 +1,0 @@
-problem,n,mode,method,start_id,f_final,success,num_iters,num_cg_iters,grad_norm,time,rate
-broyden_tridiagonal,100000,exact,tn,0,7.140667255491651e-16,1,10,79,1.8019062469035005e-07,15.760848799999998,0.047024506663590884

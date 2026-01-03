@@ -1,9 +1,9 @@
 import numpy as np
 from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_search
 from optim.gradient_baseline import pcg_hess_vect_prod
+from optim.tn_extras.preconditioning import build_M_inv
 from collections import deque
 
-print("V4")
 
 def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
     g = np.asarray(g, dtype=float)
@@ -106,10 +106,12 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     save_paths_2d = run_cfg['save_paths_2d']
     save_rates = run_cfg['save_rates']
 
+    ls_type = ls_cfg["type"]
     alpha0 = ls_cfg['alpha0']
     rho = ls_cfg['rho']
     c = ls_cfg['c']
     max_ls_iter = ls_cfg['max_ls_iter']
+    
     
 
     cg_max_iters = tn_cfg['cg']['max_iters']
@@ -170,14 +172,14 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     # identity preconditioner for PCG
     Minv_identity = lambda r: r
     n_plateau = 0
+    rng = np.random.default_rng(int(run_cfg.get("seed", 0)))
     
     for k in range(1, max_iters + 1):
         g = grad_fn(x)
         f_x = f(x)
         grad_norm = np.linalg.norm(g)
         plateau.update(grad_norm)
-        #use_heuristic = plateau.in_plateau()
-        use_heuristic = False
+        use_heuristic = plateau.in_plateau()
 
         if save_rates:
             rates.append(grad_norm)
@@ -213,10 +215,24 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             cg_iter = 0
         else:
             # normal Newton-CG step
+            Minv = Minv_identity
+            M_inv, prec_dict = build_M_inv(
+                problem=problem,
+                x=x,
+                Av_base=Av,
+                lam=0.0,
+                n=n,
+                rng=rng,
+                tn_cfg=tn_cfg,
+            )
+
+            if M_inv is not None:
+                Minv = M_inv
+
             p_try, cg_iter = pcg_hess_vect_prod(
                 grad_x0=g,
                 Av=Av,
-                Minv=Minv_identity,
+                Minv=Minv,
                 max_iter=cg_max_iters_eff,
                 eta=eta
             )
@@ -235,20 +251,15 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         # ---- line search ----
         if not use_heuristic:
             alpha0 = min(1.0, 2.0 * alpha_prev)
-            
-            alpha = armijo_backtracking(
-                    f, x, f_x, g, p,
-                    init_alpha=alpha0,
-                    rho=rho,
-                    c=c,
-                    max_iters=max_ls_iter
+            found = False
+
+            if ls_type == "wolfe":
+
+                alpha, found = strong_wolfe_line_search(
+                    f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
                 )
             
-            """
-            alpha, ok = strong_wolfe_line_search(
-                f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
-            )
-            if not ok:
+            if not found:
                 alpha = armijo_backtracking(
                     f, x, f_x, g, p,
                     init_alpha=alpha0,
@@ -256,7 +267,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
                     c=c,
                     max_iters=max_ls_iter
                 )
-            """
+            
             
 
         # ---- update x and store actual step ----
@@ -272,7 +283,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
                     #"cg", cg_iter, "eta", eta, "plateau", use_heuristic)
             print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
-                    "cg", cg_iter, "eta", eta)
+                    "cg", cg_iter, "eta", eta, prec_dict["type"])
 
 
 
@@ -298,5 +309,4 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         result['rates'] = np.array(rates)
 
     return result
-
 

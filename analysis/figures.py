@@ -12,7 +12,7 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
                        con chiave 'path' (array (K,2)).
     """
     fig_cfg = config['postprocessing']['figures']['top_view']
-    out_dir = fig_cfg['output_dir']
+    out_dir = config['postprocessing']['figures']['output_dir']
     exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start}"
     os.makedirs(out_dir, exist_ok=True)
     exp_path = os.path.join(out_dir, exp_name)
@@ -81,59 +81,103 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
 
 
 
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+
 def plot_rates_for_dimension(all_results, config,
                              problem_name, n, mode, method):
     """
-    Plotta ||grad(x_k)|| per tutte le sequenze che sono converged,
-    per una combinazione (problem_name, n, mode, method).
+    Plot both:
+      - ||grad(x_k)||  (res['rates'])
+      - f(x_k)         (res['f_rates'])
+    for all converged sequences for a given (problem_name, n, mode, method).
+    Uses two y-axes to keep both curves readable.
     """
     fig_cfg = config['postprocessing']['figures']['rates']
-    out_dir = fig_cfg['output_dir']
+    out_dir = config['postprocessing']['figures']['output_dir']
     os.makedirs(out_dir, exist_ok=True)
 
     series = []
-    # all_results ha key: (problem_name, n, mode, method, start_id)
+    # all_results has key: (problem_name, n, mode, method, start_id)
     for (p_name, nn, m_mode, m_method, start_id), res in all_results.items():
         if p_name != problem_name or nn != n or m_mode != mode or m_method != method:
             continue
         if not res.get('success', False):
             continue
-        if 'rates' not in res:
+
+        rates = res.get('rates', None)
+        f_rates = res.get('f_rates', None)
+        if rates is None and f_rates is None:
             continue
-        series.append((start_id, np.array(res['rates'])))
+
+        rates_arr = np.array(rates) if rates is not None else None
+        f_arr = np.array(f_rates) if f_rates is not None else None
+
+        # Skip if empty
+        if (rates_arr is None or rates_arr.size == 0) and (f_arr is None or f_arr.size == 0):
+            continue
+
+        # If both exist but lengths differ, align to the shorter length
+        if rates_arr is not None and f_arr is not None:
+            L = min(len(rates_arr), len(f_arr))
+            rates_arr = rates_arr[:L]
+            f_arr = f_arr[:L]
+
+        series.append((start_id, rates_arr, f_arr))
 
     if not series:
         return
 
-    plt.figure(figsize=(8, 6))
+    # --- Figure with two y-axes ---
+    fig, ax_g = plt.subplots(figsize=(8, 6))
+    ax_f = ax_g.twinx()
 
-    for start_id, rates in series:
-        iters = np.arange(1, len(rates) + 1)
-        if fig_cfg.get('use_log_scale', True):
-            plt.semilogy(iters, rates, label=f'start {start_id}')
+    use_log = fig_cfg.get('use_log_scale', True)
+
+    # Plot: grad norm (left axis)
+    for start_id, rates_arr, _f_arr in series:
+        if rates_arr is None:
+            continue
+        iters = np.arange(1, len(rates_arr) + 1)
+        if use_log:
+            ax_g.semilogy(iters, rates_arr, label=f"||g|| start {start_id}")
         else:
-            plt.plot(iters, rates, label=f'start {start_id}')
+            ax_g.plot(iters, rates_arr, label=f"||g|| start {start_id}")
 
-    plt.xlabel("Iteration")
-    plt.ylabel(r"$\|\nabla f(x_k)\|$")
-    plt.title(f"{problem_name}, n={n}, mode={mode}, method={method} – gradient norm")
-    plt.legend(loc='best', fontsize=8)
-    plt.tight_layout()
+    # Plot: f(x) (right axis)
+    for start_id, _rates_arr, f_arr in series:
+        if f_arr is None:
+            continue
+        iters = np.arange(1, len(f_arr) + 1)
+        # Usually f(x) can also span orders of magnitude; optionally log it via config flag
+        if fig_cfg.get('use_log_scale_fx', False):
+            ax_f.semilogy(iters, f_arr, label=f"f(x) start {start_id}", linestyle="--")
+        else:
+            ax_f.plot(iters, f_arr, label=f"f(x) start {start_id}", linestyle="--")
 
-    # ---- SALVATAGGIO FIGURA ----
+    ax_g.set_xlabel("Iteration")
+    ax_g.set_ylabel(r"$\|\nabla f(x_k)\|$")
+    ax_f.set_ylabel(r"$f(x_k)$")
+    ax_g.set_title(f"{problem_name}, n={n}, mode={mode}, method={method} – grad norm & f(x)")
 
+    # Merge legends from both axes
+    handles_g, labels_g = ax_g.get_legend_handles_labels()
+    handles_f, labels_f = ax_f.get_legend_handles_labels()
+    if handles_g or handles_f:
+        ax_g.legend(handles_g + handles_f, labels_g + labels_f, loc='best', fontsize=8)
+
+    fig.tight_layout()
+
+    # ---- SAVE FIGURE ----
     fname = "rates.png"
-
-
-
-    # 2) salvataggio in ogni cartella per start
     root_output = out_dir
-    for start_id, _rates in series:
+
+    for start_id, _rates_arr, _f_arr in series:
         exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start_id}"
         exp_dir = os.path.join(root_output, exp_name)
         os.makedirs(exp_dir, exist_ok=True)
+        fig.savefig(os.path.join(exp_dir, fname), dpi=300)
 
-        exp_path = os.path.join(exp_dir, fname)
-        plt.savefig(exp_path, dpi=300)
-
-    plt.close()
+    plt.close(fig)

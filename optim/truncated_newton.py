@@ -3,7 +3,7 @@ from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_searc
 from optim.gradient_baseline import pcg_hess_vect_prod
 from optim.tn_extras.preconditioning import build_M_inv
 from collections import deque
-
+from differentation.finite_differences import fd_gradient, fd_hessian
 
 def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
     g = np.asarray(g, dtype=float)
@@ -134,8 +134,9 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-        def hessvec_fn(x, g, v): # type: ignore
-            return problem.fd_hessian(x, g, h) @ v
+        if run_cfg["n_value"] == 2:
+            def hessvec_fn(x, g, v): # type: ignore
+                return problem.fd_hessian(x, g, h) @ v
 
     elif mode == 'fd_all':
         if h is None:
@@ -155,6 +156,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
     path = []
     rates = []
+    f_rates = []
     total_cg_iters = 0
 
     alpha_prev = 1.0
@@ -184,6 +186,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
         if save_rates:
             rates.append(grad_norm)
+            f_rates.append(f_x)
 
         if grad_norm < float(tol):
             success = True
@@ -308,6 +311,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
     if save_rates:
         result['rates'] = np.array(rates)
+        result['f_rates'] = np.array(f_rates)
 
     return result
 

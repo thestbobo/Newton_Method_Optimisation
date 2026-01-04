@@ -12,7 +12,7 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
                        con chiave 'path' (array (K,2)).
     """
     fig_cfg = config['postprocessing']['figures']['top_view']
-    out_dir = 'output'
+    out_dir = fig_cfg['output_dir']
     exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start}"
     os.makedirs(out_dir, exist_ok=True)
     exp_path = os.path.join(out_dir, exp_name)
@@ -88,7 +88,7 @@ def plot_rates_for_dimension(all_results, config,
     per una combinazione (problem_name, n, mode, method).
     """
     fig_cfg = config['postprocessing']['figures']['rates']
-    out_dir = 'output'
+    out_dir = fig_cfg['output_dir']
     os.makedirs(out_dir, exist_ok=True)
 
     series = []
@@ -127,7 +127,7 @@ def plot_rates_for_dimension(all_results, config,
 
 
     # 2) salvataggio in ogni cartella per start
-    root_output = "output"
+    root_output = out_dir
     for start_id, _rates in series:
         exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start_id}"
         exp_dir = os.path.join(root_output, exp_name)

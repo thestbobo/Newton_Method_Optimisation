@@ -135,7 +135,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
         def hessvec_fn(x, g, v): # type: ignore
-            return problem.fd_hessian_from_grad(x, g, h) @ v
+            return problem.fd_hessian(x, g, h) @ v
 
     elif mode == 'fd_all':
         if h is None:
@@ -178,8 +178,9 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         g = grad_fn(x)
         f_x = f(x)
         grad_norm = np.linalg.norm(g)
-        plateau.update(grad_norm)
-        use_heuristic = plateau.in_plateau()
+        # plateau.update(grad_norm)
+        # use_heuristic = plateau.in_plateau()
+        use_heuristic = False
 
         if save_rates:
             rates.append(grad_norm)

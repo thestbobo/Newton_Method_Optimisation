@@ -1,0 +1,2 @@
+problem,n,mode,method,start_id,f_final,success,num_iters,num_cg_iters,grad_norm,time,rate
+chained_serpentine,1000,exact,tn,2,7.849227636707288e-28,1,2295,2473,3.981888977124899e-13,29.869375724003476,0.11351082219644715

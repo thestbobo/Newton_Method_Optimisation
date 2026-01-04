@@ -44,7 +44,7 @@ def postprocess(all_results, config, problem_classes, time):
 
 
         # csv per ogni combinazione (problem, n, mode, method, start_id)
-        root_output ='output'  # es. 'output' se è 'output/tables'
+        root_output = tables_out_dir  # es. 'output' se è 'output/tables'
         for (problem_name, n, mode, method, start_id), rows in rows_by_key.items():
             exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start_id}"
             exp_dir = os.path.join(root_output, exp_name)

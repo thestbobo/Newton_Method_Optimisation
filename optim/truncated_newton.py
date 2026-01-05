@@ -180,9 +180,8 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         g = grad_fn(x)
         f_x = f(x)
         grad_norm = np.linalg.norm(g)
-        # plateau.update(grad_norm)
-        # use_heuristic = plateau.in_plateau()
-        use_heuristic = False
+        plateau.update(grad_norm)
+        use_heuristic = plateau.in_plateau()
 
         if save_rates:
             rates.append(grad_norm)

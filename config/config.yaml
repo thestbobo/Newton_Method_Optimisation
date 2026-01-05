@@ -1,5 +1,5 @@
 run:
-  problem:  broyden_tridiagonal           # es. quad, ext_powell (entrambi presi da [1])
+  problem:  chained_serpentine           # es. quad, ext_powell (entrambi presi da [1])
   n_value: 100000                         # richiesto dall'assignment [2, 1000, 10000, 100000]
   methods:  'tn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID
@@ -41,7 +41,7 @@ modified_newton:
     fd_all: fd_hess_from_grad  # ma usando grad_fd invece di grad_exact
 
 truncated_newton:
-  use_precontitioning: false  # enable preconditioning in TN
+  use_precontitioning: true  # enable preconditioning in TN
   cg:
     max_iters: 50           # iterazioni interne CG (puoi testare 20, 50, 100)
     tol: 0.001            # tolerance CG -> (0.5 was way too loose -> (0.1:loose but ok, 0.01:typical, 0.001:good))

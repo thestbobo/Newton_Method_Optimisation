@@ -134,9 +134,9 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-        if run_cfg["n_value"] == 2:
-            def hessvec_fn(x, g, v): # type: ignore
-                return problem.fd_hessian(x, g, h) @ v
+        
+        def hessvec_fn(x, g, v): # type: ignore
+            return problem.fd_hessian(x, g, h) @ v
 
     elif mode == 'fd_all':
         if h is None:

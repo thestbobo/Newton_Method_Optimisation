@@ -176,36 +176,54 @@ class ChainedSerpentine:
         return Hv
     
     
-    def fd_gradient(self, x, h):
+    def fd_gradient(self, x, h, relative: bool = False):
+        """
+        Finite-difference gradient for Chained-Serpentine,
+        supporting:
+        - absolute step: h
+        - relative step: h_i = h * |x_i|  (fallback to h if x_i == 0)
+
+        This keeps your exact algebraic structure, but replaces scalar h with
+        per-coordinate h_i wherever the FD perturbation is applied to x_i.
+        """
         x = np.asarray(x, dtype=float)
         n = x.size
 
-        xi   = x[:-1]
-        xip1 = x[1:]
+        # Per-coordinate steps (vectorized is best here)
+        if relative:
+            h_vec = float(h) * np.abs(x)
+            h_vec[h_vec == 0.0] = float(h)
+        else:
+            h_vec = np.full_like(x, float(h))
 
-        s  = 2*xi/(1 + xi**2)
-        r  = 10*(s - xip1)      # r_i
-        p  = xi - 1             # p_i
+        xi   = x[:-1]      # x_0 .. x_{n-2}
+        xip1 = x[1:]       # x_1 .. x_{n-1}
+        hi   = h_vec[:-1]  # steps associated with xi
+
+        s  = 2.0 * xi / (1.0 + xi**2)
+        r  = 10.0 * (s - xip1)      # r_i
+        p  = xi - 1.0               # p_i
 
         g = np.zeros_like(x)
 
-        # ===== contributo p_j =====
+        # ===== contribution from p_j =====
         g[:-1] += p
 
-        # ===== contributo r_{j-1} =====
-        g[1:n-1] += -10 * r[:-1]
+        # ===== contribution from r_{j-1} =====
+        g[1:n-1] += -10.0 * r[:-1]
 
-        # ===== contributo r_j =====
-        sp = 2*(xi + h)/(1 + (xi + h)**2)
-        sm = 2*(xi - h)/(1 + (xi - h)**2)
+        # ===== contribution from r_j =====
+        # FD perturbations must use the per-coordinate step hi (elementwise)
+        sp = 2.0 * (xi + hi) / (1.0 + (xi + hi)**2)
+        sm = 2.0 * (xi - hi) / (1.0 + (xi - hi)**2)
 
-        drp = 10*(sp - s)
-        drm = 10*(sm - s)
+        drp = 10.0 * (sp - s)
+        drm = 10.0 * (sm - s)
 
-        g[:-1] += (r * (drp - drm)) / (2*h)
+        g[:-1] += (r * (drp - drm)) / (2.0 * hi)
 
-        # ===== contributo finale su x_n =====
-        g[-1] += -10 * r[-1]
+        # ===== final contribution on x_n =====
+        g[-1] += -10.0 * r[-1]
 
         return g
 
@@ -222,57 +240,78 @@ class ChainedSerpentine:
     
 
 
-    def fd_hessian(self, x, g, h):
+    def fd_hessian(self, x, g, h, relative: bool = False):
+        """
+        Finite-difference Hessian (tridiagonal) for Chained-Serpentine,
+        supporting:
+        - absolute step: h
+        - relative step: h_j = h * |x_j|  (fallback to h if x_j == 0)
+
+        Notes:
+        - This routine builds the three diagonals by differentiating local
+        gradient components via centered differences, using grad_i(...).
+        - The input `g` is not used here (kept to preserve your signature).
+        """
+        x = np.asarray(x, dtype=float)
         n = x.shape[0]
 
         diag_main  = np.zeros(n)
-        diag_lower = np.zeros(n-1)
-        diag_upper = np.zeros(n-1)
+        diag_lower = np.zeros(n - 1)
+        diag_upper = np.zeros(n - 1)
 
         for j in range(n):
-
-            xph = x[j] + h
-            xmh = x[j] - h
-
-            if j == 0:
-                gp = self.grad_i(None, xph, x[j+1])
-                gm = self.grad_i(None, xmh, x[j+1])
-            elif j == n-1:
-                gp = self.grad_i(x[j-1], xph, None)
-                gm = self.grad_i(x[j-1], xmh, None)
+            # step for the j-th differentiation direction
+            if relative:
+                hj = float(h) * abs(float(x[j]))
+                if hj == 0.0:
+                    hj = float(h)
             else:
-                gp = self.grad_i(x[j-1], xph, x[j+1])
-                gm = self.grad_i(x[j-1], xmh, x[j+1])
+                hj = float(h)
 
-            diag_main[j] = (gp - gm) / (2*h)
+            xph = x[j] + hj
+            xmh = x[j] - hj
 
+            # ---- main diagonal: d g_j / d x_j
+            if j == 0:
+                gp = self.grad_i(None, xph, x[j + 1])
+                gm = self.grad_i(None, xmh, x[j + 1])
+            elif j == n - 1:
+                gp = self.grad_i(x[j - 1], xph, None)
+                gm = self.grad_i(x[j - 1], xmh, None)
+            else:
+                gp = self.grad_i(x[j - 1], xph, x[j + 1])
+                gm = self.grad_i(x[j - 1], xmh, x[j + 1])
+
+            diag_main[j] = (gp - gm) / (2.0 * hj)
+
+            # ---- lower diagonal: d g_{j-1} / d x_j  (row j-1, col j)
             if j > 0:
-                if j-1 == 0:
-                    gp = self.grad_i(None, x[j-1], xph)
-                    gm = self.grad_i(None, x[j-1], xmh)
+                if j - 1 == 0:
+                    gp = self.grad_i(None, x[j - 1], xph)
+                    gm = self.grad_i(None, x[j - 1], xmh)
                 else:
-                    gp = self.grad_i(x[j-2], x[j-1], xph)
-                    gm = self.grad_i(x[j-2], x[j-1], xmh)
+                    gp = self.grad_i(x[j - 2], x[j - 1], xph)
+                    gm = self.grad_i(x[j - 2], x[j - 1], xmh)
 
-                diag_lower[j-1] = (gp - gm) / (2*h)
+                diag_lower[j - 1] = (gp - gm) / (2.0 * hj)
 
-            if j < n-1:
-                if j+1 == n-1:
-                    gp = self.grad_i(xph, x[j+1], None)
-                    gm = self.grad_i(xmh, x[j+1], None)
+            # ---- upper diagonal: d g_{j+1} / d x_j  (row j+1, col j)
+            if j < n - 1:
+                if j + 1 == n - 1:
+                    gp = self.grad_i(xph, x[j + 1], None)
+                    gm = self.grad_i(xmh, x[j + 1], None)
                 else:
-                    gp = self.grad_i(xph, x[j+1], x[j+2])
-                    gm = self.grad_i(xmh, x[j+1], x[j+2])
+                    gp = self.grad_i(xph, x[j + 1], x[j + 2])
+                    gm = self.grad_i(xmh, x[j + 1], x[j + 2])
 
-                diag_upper[j] = (gp - gm) / (2*h)
+                diag_upper[j] = (gp - gm) / (2.0 * hj)
 
         return diags(
             diagonals=[diag_lower, diag_main, diag_upper],
-            offsets=[-1, 0, 1], # type: ignore
+            offsets=[-1, 0, 1],  # type: ignore
             format="csr"
         )
-
-                
+                    
         
         
 

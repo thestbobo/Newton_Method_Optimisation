@@ -71,7 +71,7 @@ class PlateauDetector:
 
 
 
-def solve_truncated_newton(problem, x0, config, h=None, relative=False):
+def solve_truncated_newton(problem, x0, config, h=None):
     """
     Truncated Newton solver (Newton-CG) che usa il config e (opzionalmente) finite differences.
 
@@ -112,7 +112,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
     c = ls_cfg['c']
     max_ls_iter = ls_cfg['max_ls_iter']
     
-    
+    relative = config['derivatives']['relative']
 
     cg_max_iters = tn_cfg['cg']['max_iters']
 
@@ -134,17 +134,17 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-        
-        def hessvec_fn(x, g, v): # type: ignore
-            return problem.fd_hessian(x, g, h) @ v
+
+        def hessvec_fn(x, g, v, rel): # type: ignore
+            return problem.fd_hessian(x, g, h, rel) @ v
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        grad_fn = lambda x: problem.fd_gradient(x, h=h)
+        grad_fn = lambda x: problem.fd_gradient(x, h=h, relative=relative)
 
-        def hessvec_fn(x, g, v): # type: ignore
-            return problem.fd_hessian(x, g, h) @ v
+        def hessvec_fn(x, g, v, rel): # type: ignore
+            return problem.fd_hessian(x, g, h, rel) @ v
         
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
@@ -206,7 +206,7 @@ def solve_truncated_newton(problem, x0, config, h=None, relative=False):
 
         # ---- Hessian-vector product ----
         if mode in ("fd_hessian", "fd_all"):
-            Av = lambda d: hessvec_fn(x, g, d)  # type: ignore
+            Av = lambda d: hessvec_fn(x, g, d, relative)  # type: ignore
         else:
             Av = lambda d: hessvec_fn(x, d)     # type: ignore
 

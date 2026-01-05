@@ -66,14 +66,14 @@ def main(config):
         # Modified Newton
         if 'mn' in methods:
             print("Method: Modified Newton")
-            res_mn = solve_modified_newton(problem, x0, config, h=h, relative=relative)
+            res_mn = solve_modified_newton(problem, x0, config, h=h)
             print("Modified Newton: finished")
             key_mn = (problem_name, n, mode, 'mn', start_id)
             all_results[key_mn] = res_mn
 
         # Truncated Newton
         if 'tn' in methods:
-            res_tn = solve_truncated_newton(problem, x0, config, h=h, relative=relative)
+            res_tn = solve_truncated_newton(problem, x0, config, h=h)
             key_tn = (problem_name, n, mode, 'tn', start_id)
             all_results[key_tn] = res_tn
 

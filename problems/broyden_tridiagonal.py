@@ -172,51 +172,89 @@ class BroydenTridiagonal:
         return self.F_from_f(self.broyden_residual(xvec))
 
 
-    def fd_gradient(self, x, h):
+    def fd_gradient(self, x, h, relative: bool = False):
+        """
+        Finite-difference gradient for Broyden-Tridiagonal objective, supporting:
+        - absolute step: h
+        - relative step: h_i = h * |x_i|  (fallback to h if x_i == 0)
+        """
         x = np.asarray(x, dtype=float)
         n = x.size
+
+        # Per-coordinate steps (vectorized is best here)
+        if relative:
+            h_vec = float(h) * np.abs(x)
+            h_vec[h_vec == 0.0] = float(h)
+        else:
+            h_vec = np.full_like(x, float(h))
+
         f = self.broyden_residual(x)
         g = np.zeros_like(x)
-        
+
+        # Interior indices i = 1..n-2
         f_im1 = f[0:-2]
         f_i   = f[1:-1]
         f_ip1 = f[2:]
         x_i   = x[1:-1]
+        h_i   = h_vec[1:-1]
 
+        # Your closed-form interior expression (depends on h_i^2)
         g[1:-1] = (-4.0 * f_i * x_i
                 + 3.0 * f_i
                 - 2.0 * f_im1
                 - 1.0 * f_ip1
-                + h**2 * (8.0 * x_i - 6.0))
+                + (h_i ** 2) * (8.0 * x_i - 6.0))
 
-    
+        # Boundaries via centered difference on F, each with its own step
         e0 = np.zeros_like(x); e0[0] = 1.0
         en = np.zeros_like(x); en[-1] = 1.0
-        g[0]  = (self.F(x + h*e0) - self.F(x - h*e0)) / (2*h)
-        g[-1] = (self.F(x + h*en) - self.F(x - h*en)) / (2*h)
+
+        h0 = float(h_vec[0])
+        hn = float(h_vec[-1])
+
+        g[0]  = (self.F(x + h0 * e0) - self.F(x - h0 * e0)) / (2.0 * h0)
+        g[-1] = (self.F(x + hn * en) - self.F(x - hn * en)) / (2.0 * hn)
 
         return g
 
 
-    def fd_hessian_from_grad(self, x, grad, h):
+    def fd_hessian(self, x, grad, h, relative: bool = False):
+        """
+        Finite-difference Hessian (5-diagonal sparse) for Broyden-Tridiagonal,
+        using column-wise centered differences:
+        H[:,j] ≈ (g(x + h_j e_j) - g(x - h_j e_j)) / (2 h_j)
+
+        Supports:
+        - absolute step: h_j = h
+        - relative step: h_j = h * |x_j|  (fallback to h if x_j == 0)
+
+        NOTE: This function assumes your hand-derived 'pert_vec' logic correctly
+        updates only the local gradient window affected by perturbing x_j.
+        """
+        x = np.asarray(x, dtype=float)
         n = x.shape[0]
+
         diag0 = np.zeros(n)
-        diag1 = np.zeros(n-1)
-        diag2 = np.zeros(n-2)
+        diag1 = np.zeros(n - 1)
+        diag2 = np.zeros(n - 2)
 
-        h0 = h   # <-- Salvo l'h originale (fondamentale)
+        for j in range(n):
 
-        g = grad(x)
+            # Compute h_j on-the-fly (best for Hessian: one scalar per column)
+            if relative:
+                h0 = float(h) * abs(float(x[j]))
+                if h0 == 0.0:
+                    h0 = float(h)
+            else:
+                h0 = float(h)
 
-        for j in range(0, n):
+            g_idx_min = max(0, j - 2)
+            g_idx_max = min(j + 2, n - 1)
+            g_interest = grad[g_idx_min:g_idx_max + 1]
 
-            g_idx_min = max(0, j-2)
-            g_idx_max = min(j+2, n-1)
-            g_interest = g[g_idx_min:g_idx_max+1]
-
+            # ---------- +h0 ----------
             pert_vec = np.zeros_like(g_interest)
 
-            # ----------- PARTE +h (NON modificare h!) -------------
             if j == 0:
                 pert_vec[0] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 8*x[j+1]*h0 + 6*h0
                 pert_vec[1] = 4*(x[j] + h0)**2 - 9*h0 + 4*x[j+1]*h0
@@ -228,13 +266,13 @@ class BroydenTridiagonal:
                 pert_vec[2] = 4*(x[j] + h0)**2 - 9*h0 + 4*x[j-1]*h0
                 pert_vec[3] = 2*h0
 
-            elif j == n-2:
+            elif j == n - 2:
                 pert_vec[0] = 2*h0
                 pert_vec[1] = 2*(x[j] + h0)**2 - 9*h0 + 8*x[j-1]*h0
                 pert_vec[2] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 10*h0 + 4*x[j-1]*h0 + 8*x[j+1]*h0
                 pert_vec[3] = 4*(x[j] + h0)**2 - 9*h0 + 4*x[j+1]*h0
 
-            elif j == n-1:
+            elif j == n - 1:
                 pert_vec[0] = 2*h0
                 pert_vec[1] = 2*(x[j] + h0)**2 - 9*h0 + 8*x[j-1]*h0
                 pert_vec[2] = 8*(x[j] + h0)**3 - 18*(x[j] + h0)**2 + 9*h0 + 4*x[j-1]*h0
@@ -248,9 +286,9 @@ class BroydenTridiagonal:
 
             g_ph = g_interest + pert_vec
 
-            # ---------- PARTE -h (uso -h0, NON modifico h) ------------
-            pert_vec = np.zeros_like(g_interest)  # reset
-            hm = -h0   # <-- uso h negativo esplicito
+            # ---------- -h0 ----------
+            pert_vec = np.zeros_like(g_interest)
+            hm = -h0
 
             if j == 0:
                 pert_vec[0] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 8*x[j+1]*hm + 6*hm
@@ -260,16 +298,16 @@ class BroydenTridiagonal:
             elif j == 1:
                 pert_vec[0] = 2*(x[j] + hm)**2 - 9*hm + 8*x[j-1]*hm
                 pert_vec[1] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 10*hm + 4*x[j-1]*hm + 8*x[j+1]*hm
-                pert_vec[2] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j+1]*hm
+                pert_vec[2] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j-1]*hm
                 pert_vec[3] = 2*hm
 
-            elif j == n-2:
+            elif j == n - 2:
                 pert_vec[0] = 2*hm
                 pert_vec[1] = 2*(x[j] + hm)**2 - 9*hm + 8*x[j-1]*hm
                 pert_vec[2] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 10*hm + 4*x[j-1]*hm + 8*x[j+1]*hm
                 pert_vec[3] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j+1]*hm
 
-            elif j == n-1:
+            elif j == n - 1:
                 pert_vec[0] = 2*hm
                 pert_vec[1] = 2*(x[j] + hm)**2 - 9*hm + 8*x[j-1]*hm
                 pert_vec[2] = 8*(x[j] + hm)**3 - 18*(x[j] + hm)**2 + 9*hm + 4*x[j-1]*hm
@@ -281,12 +319,12 @@ class BroydenTridiagonal:
                 pert_vec[3] = 4*(x[j] + hm)**2 - 9*hm + 4*x[j+1]*hm
                 pert_vec[4] = 2*hm
 
-            g_mh = g_interest + pert_vec   # <-- CORREZIONE SIGNO!
+            g_mh = g_interest + pert_vec
 
-            # ---------- DIFFERENZA CENTRATA CORRETTA ----------
-            hess_col = (g_ph - g_mh) / (2*h0)   # <-- h0 fisso
+            # Centered difference column (local window only)
+            hess_col = (g_ph - g_mh) / (2.0 * h0)
 
-            # ---------- ASSEGNAZIONE DIAGONALI (come nel tuo codice) ----------
+            # Assign diagonals (same mapping as your original code)
             if j == 0:
                 diag0[j] = hess_col[0]
                 diag1[j] = hess_col[1]
@@ -297,7 +335,7 @@ class BroydenTridiagonal:
                 diag1[j] = hess_col[2]
                 diag2[j] = hess_col[3]
 
-            elif j == n-2:
+            elif j == n - 2:
                 diag0[j] = hess_col[2]
                 diag1[j] = hess_col[3]
 
@@ -311,7 +349,6 @@ class BroydenTridiagonal:
 
         diagonals = [diag2, diag1, diag0, diag1, diag2]
         offsets = [-2, -1, 0, 1, 2]
-
         H = diags(diagonals, offsets)  # type: ignore
         return H
 

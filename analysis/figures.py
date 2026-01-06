@@ -12,7 +12,7 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
                        con chiave 'path' (array (K,2)).
     """
     fig_cfg = config['postprocessing']['figures']['top_view']
-    out_dir = 'output'
+    out_dir = config['postprocessing']['figures']['output_dir']
     exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start}"
     os.makedirs(out_dir, exist_ok=True)
     exp_path = os.path.join(out_dir, exp_name)
@@ -81,82 +81,103 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
 
 
 
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+
 def plot_rates_for_dimension(all_results, config,
                              problem_name, n, mode, method):
     """
-    Plotta ||grad(x_k)|| per tutte le sequenze che sono converged,
-    per una combinazione (problem_name, n, mode, method).
+    Plot both:
+      - ||grad(x_k)||  (res['rates'])
+      - f(x_k)         (res['f_rates'])
+    for all converged sequences for a given (problem_name, n, mode, method).
+    Uses two y-axes to keep both curves readable.
     """
     fig_cfg = config['postprocessing']['figures']['rates']
-    out_dir = 'output'
+    out_dir = config['postprocessing']['figures']['output_dir']
     os.makedirs(out_dir, exist_ok=True)
 
     series = []
-    # all_results ha key: (problem_name, n, mode, method, start_id)
-    series = []
+    # all_results has key: (problem_name, n, mode, method, start_id)
     for (p_name, nn, m_mode, m_method, start_id), res in all_results.items():
         if p_name != problem_name or nn != n or m_mode != mode or m_method != method:
             continue
         if not res.get('success', False):
             continue
-        
-        # Recupera rates (gradiente) e f_values (funzione)
-        rates = res.get('rates', [])
-        f_vals = res.get('f_values', []) # <--- NUOVO
-        series.append((start_id, np.array(rates), np.array(f_vals)))
+
+        rates = res.get('rates', None)
+        f_rates = res.get('f_rates', None)
+        if rates is None and f_rates is None:
+            continue
+
+        rates_arr = np.array(rates) if rates is not None else None
+        f_arr = np.array(f_rates) if f_rates is not None else None
+
+        # Skip if empty
+        if (rates_arr is None or rates_arr.size == 0) and (f_arr is None or f_arr.size == 0):
+            continue
+
+        # If both exist but lengths differ, align to the shorter length
+        if rates_arr is not None and f_arr is not None:
+            L = min(len(rates_arr), len(f_arr))
+            rates_arr = rates_arr[:L]
+            f_arr = f_arr[:L]
+
+        series.append((start_id, rates_arr, f_arr))
 
     if not series:
         return
 
-    # Creazione Plot
-    fig, ax1 = plt.subplots(figsize=(8, 6))
-    
-    # Colori distintivi
-    color_grad = 'tab:blue'
-    color_f = 'tab:orange'
+    # --- Figure with two y-axes ---
+    fig, ax_g = plt.subplots(figsize=(8, 6))
+    ax_f = ax_g.twinx()
 
-    # Plot solo del primo start (o loop se vuoi vederli tutti, ma diventa confuso con due assi)
-    # Per chiarezza, qui plotto il primo risultato convergente trovato
-    start_id, rates, f_vals = series[0]
-    iters = np.arange(1, len(rates) + 1)
+    use_log = fig_cfg.get('use_log_scale', True)
 
-    # ASSE 1 (Sinistra): Gradient Norm (Blu)
-    ax1.semilogy(iters, rates, color=color_grad, label=fr"$\|\nabla f(x_k)\|$ (Start {start_id})")
-    ax1.set_xlabel("Iteration")
-    ax1.set_ylabel(r"Gradient Norm $\|\nabla f(x_k)\|$", color=color_grad)
-    ax1.tick_params(axis='y', labelcolor=color_grad)
-    ax1.grid(True, which="both", alpha=0.3)
-
-    # ASSE 2 (Destra): Function Value (Arancione) - SOLO SE ESISTONO DATI
-    if len(f_vals) > 0:
-        ax2 = ax1.twinx()  # Crea asse gemello
-        # Se f(x) è sempre positivo (come nei minimi quadrati), usiamo semilogy, altrimenti plot lineare
-        if np.all(f_vals > 0):
-            ax2.semilogy(iters, f_vals, color=color_f, linestyle='--', linewidth=2, label=fr"$f(x_k)$")
+    # Plot: grad norm (left axis)
+    for start_id, rates_arr, _f_arr in series:
+        if rates_arr is None:
+            continue
+        iters = np.arange(1, len(rates_arr) + 1)
+        if use_log:
+            ax_g.semilogy(iters, rates_arr, label=f"||g|| start {start_id}")
         else:
-            ax2.plot(iters, f_vals, color=color_f, linestyle='--', linewidth=2, label=fr"$f(x_k)$")
-        
-        ax2.set_ylabel(r"Function Value $f(x_k)$", color=color_f)
-        ax2.tick_params(axis='y', labelcolor=color_f)
-        # Opzionale: aggiungi una legenda unificata se serve, o lascia le etichette assi
+            ax_g.plot(iters, rates_arr, label=f"||g|| start {start_id}")
 
-    plt.title(f"{problem_name}, n={n}, {method}")
-    plt.tight_layout()
+    # Plot: f(x) (right axis)
+    for start_id, _rates_arr, f_arr in series:
+        if f_arr is None:
+            continue
+        iters = np.arange(1, len(f_arr) + 1)
+        # Usually f(x) can also span orders of magnitude; optionally log it via config flag
+        if fig_cfg.get('use_log_scale_fx', False):
+            ax_f.semilogy(iters, f_arr, label=f"f(x) start {start_id}", linestyle="--")
+        else:
+            ax_f.plot(iters, f_arr, label=f"f(x) start {start_id}", linestyle="--")
 
-    # ---- SALVATAGGIO FIGURA ----
+    ax_g.set_xlabel("Iteration")
+    ax_g.set_ylabel(r"$\|\nabla f(x_k)\|$")
+    ax_f.set_ylabel(r"$f(x_k)$")
+    ax_g.set_title(f"{problem_name}, n={n}, mode={mode}, method={method} – grad norm & f(x)")
 
+    # Merge legends from both axes
+    handles_g, labels_g = ax_g.get_legend_handles_labels()
+    handles_f, labels_f = ax_f.get_legend_handles_labels()
+    if handles_g or handles_f:
+        ax_g.legend(handles_g + handles_f, labels_g + labels_f, loc='best', fontsize=8)
+
+    fig.tight_layout()
+
+    # ---- SAVE FIGURE ----
     fname = "rates.png"
+    root_output = out_dir
 
-
-
-    # 2) salvataggio in ogni cartella per start
-    root_output = "output"
-    for start_id, _rates, _fvals in series:
+    for start_id, _rates_arr, _f_arr in series:
         exp_name = f"{problem_name}_n{n}_{mode}_{method}_{start_id}"
         exp_dir = os.path.join(root_output, exp_name)
         os.makedirs(exp_dir, exist_ok=True)
+        fig.savefig(os.path.join(exp_dir, fname), dpi=300)
 
-        exp_path = os.path.join(exp_dir, fname)
-        plt.savefig(exp_path, dpi=300)
-
-    plt.close()
+    plt.close(fig)

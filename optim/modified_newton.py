@@ -6,7 +6,7 @@ from scipy.sparse.linalg import spsolve
 from problems.broyden_tridiagonal import BroydenTridiagonal
 from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_search
 from optim.tn_extras.plateau_detector import PlateauDetector
-
+from differentation.finite_differences import fd_gradient, fd_hessian
             
 def _gershgorin_lower_bound_dia(H_dia: sp.dia_matrix) -> float:
     """
@@ -216,6 +216,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     ls_cfg = config['line_search']
     mn_cfg = config['modified_newton']
 
+    n_value = run_cfg['n_value']
     max_iters = run_cfg['max_iters']
     tol = run_cfg['tolerance']
     save_paths_2d = run_cfg['save_paths_2d']
@@ -240,6 +241,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     sparse_format = mn_cfg.get('sparse_format', 'dia')  # 'dia' for SPD checks, 'csr' for solves
     max_damping_tries = mn_cfg.get('max_damping_tries', 6)
 
+    fw_bw = config['derivatives']['forward_backward']
 
     f = problem.f
 
@@ -258,13 +260,20 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-        hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
+        if n_value == 2:
+            hess_fn = lambda x: fd_hessian(f, x, h)
+        else:
+            hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        grad_fn = lambda x: problem.fd_gradient(x, h=h)
-        hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
+        if n_value == 2:
+            grad_fn = lambda x: fd_gradient(f, x, h, forward_backward=fw_bw)
+            hess_fn = lambda x: fd_hessian(f, x, h)
+        else:
+            grad_fn = lambda x: problem.fd_gradient(x, h=h)
+            hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
 
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
@@ -294,7 +303,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         g = grad_fn(x)
         grad_norm = float(np.linalg.norm(g))
         f_x = f(x)
-        
+
         if use_plateau_detector:
             plateau.update(grad_norm)
             use_heuristic = plateau.in_plateau()
@@ -327,8 +336,11 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
 
         if mode == "exact":
             H = hess_fn(x)
-        else:        
-            H = hess_fn(x, g)
+        else:
+            if n_value == 2:
+                H = hess_fn(x)
+            else:     
+                H = hess_fn(x, g)
         
             # ------ SPD-fix ------
         is_sparse = sp.issparse(H)

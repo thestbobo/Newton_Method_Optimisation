@@ -4,84 +4,157 @@ from scipy.linalg import cholesky_banded
 from scipy.sparse.linalg import spsolve
 
 from problems.broyden_tridiagonal import BroydenTridiagonal
-from linesearch.backtracking import armijo_backtracking
+from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_search
+from optim.tn_extras.plateau_detector import PlateauDetector
 
             
-def _modify_to_spd(H, lam_init, lam_factor, lam_max, max_tries=50):
+def _gershgorin_lower_bound_dia(H_dia: sp.dia_matrix) -> float:
     """
-    Modify sparse (banded / dia) Hessian H to be SPD by adding λI.
-
-    H is assumed symmetric banded, stored as scipy.sparse.dia_matrix
-    with a small bandwidth (e.g. Broyden_tridiagonal: 5 diagonals).
-
-    We NEVER build a full n x n dense matrix.
-    We only build a (u+1) x n banded array for Cholesky,
-    where u is the lower bandwidth (e.g. u = 2 for 5 diagonals).
+    Gershgorin lower bound for the smallest eigenvalue of a symmetric matrix.
+    For each row i: center = H_ii, radius = sum_{j!=i} |H_ij|.
+    Lower bound: min_i (center_i - radius_i).
+    Works efficiently for DIA banded matrices.
     """
+    H_dia = H_dia.todia()
+    n = H_dia.shape[0]
+    offsets = H_dia.offsets.astype(int)
+    data = H_dia.data
 
-    # Make sure we work in DIA format (cheap view)
+    # main diagonal (aligned)
+    main = H_dia.diagonal(0).astype(float)
+
+    # radius from off-diagonals, aligned per-row.
+    # For DIA, diag values live in data[k, j] with offset d: A[j - d, j].
+    r = np.zeros(n, dtype=float)
+    for off, diag in zip(offsets, data):
+        if off == 0:
+            continue
+        if off > 0:
+            # valid columns j=off..n-1 -> rows i=j-off in 0..n-off-1
+            r[: n - off] += np.abs(diag[off:]).astype(float)
+        else:
+            # valid columns j=0..n+off-1 -> rows i=j-off in -off..n-1
+            r[-off:] += np.abs(diag[: n + off]).astype(float)
+
+    return float(np.min(main - r))
+
+
+def _build_banded_lower_from_dia(H_dia: sp.dia_matrix, u: int) -> np.ndarray:
+    """
+    Convert a symmetric banded DIA matrix into the 'ab' banded storage expected by
+    scipy.linalg.cholesky_banded(lower=True).
+
+    ab has shape (u+1, n) and stores the lower triangle:
+        ab[i-j, j] = a[i, j]  for i >= j and i-j <= u.
+    """
+    H_dia = H_dia.todia()
+    n = H_dia.shape[0]
+    ab = np.zeros((u + 1, n), dtype=H_dia.data.dtype)
+
+    for k in range(u + 1):
+        # diagonal offset -k is the k-th subdiagonal
+        diag = H_dia.diagonal(-k)
+        ab[k, :n - k] = diag  # diag length n-k
+    return ab
+
+
+def _infer_lower_bandwidth_from_dia(H_dia: sp.dia_matrix) -> int:
+    """
+    Infer lower bandwidth u from DIA offsets.
+    Example: offsets [-2,-1,0,1,2] -> u=2.
+    """
+    offsets = H_dia.offsets.astype(int)
+    lower_offsets = offsets[offsets <= 0]
+    if lower_offsets.size == 0:
+        return 0
+    return int(-np.min(lower_offsets))
+
+
+def make_spd_by_shift(
+    H,
+    lam_init,
+    lam_factor,
+    lam_max,
+    delta=1e-12,
+    max_tries=12
+):
+    """
+    Produce SPD matrix H_mod = (H + lam*I) in sparse DIA form using:
+    1) Symmetrization
+    2) Smart initial lambda from Gershgorin lower bound
+    3) Banded Cholesky verification
+    4) Multiplicative retries only if needed
+
+    Returns
+    -------
+    H_mod : sp.dia_matrix (SPD if ok=True)
+    lam   : float
+    ok    : bool
+    """
+    if not sp.issparse(H):
+        raise TypeError("make_spd_by_shift expects a scipy sparse matrix. "
+                        "Use sparse Hessians (hess_exact_sparse) for Modified Newton.")
+
+    # Symmetrize (important with FD noise or numeric asymmetry)
+    H = (H + H.T) * 0.5
     H = H.todia()
     n = H.shape[0]
 
-    # Convert λ parameters to floats (robust against YAML strings)
-    lam = float(lam_init)
+    lam_init = float(lam_init)
     lam_factor = float(lam_factor)
     lam_max = float(lam_max)
+    delta = float(delta)
 
-    # Identity in DIA form (keeps everything sparse)
+    # Infer bandwidth once
+    u = _infer_lower_bandwidth_from_dia(H)
+
+    # Smart initial shift from Gershgorin lower bound:
+    # want λ_min(H + lam I) >= delta  -> lam >= delta - λ_min(H)
+    L = _gershgorin_lower_bound_dia(H)
+    lam = max(lam_init, delta - L, 0.0)
+
     I = sp.eye(n, format="dia")
+    H_mod = H + lam * I
 
-    # Determine lower bandwidth u from the DIA offsets
-    # offsets <= 0 are main and lower diagonals; min(offsets) is the furthest below
-    offsets = H.offsets.astype(int)
-    lower_offsets = offsets[offsets <= 0]
-    if lower_offsets.size == 0:
-        # No lower diagonals? then bandwidth is 0
-        u = 0
-    else:
-        u = int(-lower_offsets.min())   # e.g. offsets [-2,-1,0,1,2] -> u = 2
-
-    # Helper: build banded 'ab' for cholesky_banded (lower form)
-    def build_banded_lower(H_dia):
-        """
-        H_dia: symmetric banded matrix in DIA form.
-        Returns ab with shape (u+1, n) for cholesky_banded(lower=True),
-        using the convention:
-            ab[i-j, j] = a[i,j]  for i >= j, i-j <= u
-        """
-        ab = np.zeros((u + 1, n), dtype=H_dia.data.dtype)
-
-        # k = 0..u: lower diagonal offset -k
-        # H_dia.diagonal(-k)[j] = a[j+k, j]  (for j = 0..n-k-1)
-        for k in range(u + 1):
-            d = H_dia.diagonal(-k)      # length n-k
-            ab[k, 0: n - k] = d
-
-        return ab
-
-    H_base = H
-    H_mod = H_base.copy()
-    spd_ok = False
-
-    for _ in range(max_tries):
-        # Build banded representation for current H_mod
-        ab = build_banded_lower(H_mod)
-
+    ok = False
+    for _ in range(int(max_tries)):
+        ab = _build_banded_lower_from_dia(H_mod, u=u)
         try:
-            # Try Cholesky factorisation in banded form
-            # This does NOT build an n x n dense matrix, only (u+1) x n
             cholesky_banded(ab, lower=True, check_finite=False)
-            spd_ok = True
+            ok = True
             break
         except np.linalg.LinAlgError:
-            # Not SPD: increase λ and try H + λ I
             lam *= lam_factor
             if lam > lam_max:
-                # Give up: return last H_mod and spd_ok=False
+                ok = False
                 break
-            H_mod = H_base + lam * I
+            H_mod = H + lam * I
 
-    return H_mod, lam, spd_ok
+    return H_mod, float(lam), ok
+
+
+def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
+    g = np.asarray(g, dtype=float)
+    gg = float(g @ g)
+    if gg < eps or s_prev is None:
+        return -g.copy()
+
+    s_prev = np.asarray(s_prev, dtype=float)
+    if np.linalg.norm(s_prev) < eps:
+        return -g.copy()
+
+    gs = float(g @ s_prev)
+    t = s_prev - (gs / gg) * g
+    tn = np.linalg.norm(t)
+    if tn < eps:
+        return -g.copy()
+
+    t = t * (tau * np.sqrt(gg) / tn)
+    p = t - gamma * g
+
+    if float(g @ p) >= 0.0:
+        p = -g.copy()
+    return p
 
 
 def solve_modified_newton(problem, x0, config, h=None, relative=False):
@@ -118,33 +191,48 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     save_paths_2d = run_cfg['save_paths_2d']
     save_rates = run_cfg['save_rates']
 
+    ls_type = ls_cfg['type']
     alpha0 = ls_cfg['alpha0']
     rho = ls_cfg['rho']
     c = ls_cfg['c']
     max_ls_iter = ls_cfg['max_ls_iter']
 
-    lam_init = mn_cfg['spd_fix']['lambda_init']
-    lam_factor = mn_cfg['spd_fix']['lambda_factor']
-    lam_max = mn_cfg['spd_fix']['lambda_max']
+    # spd fix cfg
+    spd_cfg = mn_cfg['spd_fix']
+    lam_init = spd_cfg['lambda_init']
+    lam_factor = spd_cfg['lambda_factor']
+    lam_max = spd_cfg['lambda_max']
+    delta = spd_cfg.get('delta', 1e-12)          
+    max_spd_tries = spd_cfg.get('max_tries', 12) 
+
+    use_sparse_exact = mn_cfg.get('use_sparse_hessian', True)
+    sparse_format = mn_cfg.get('sparse_format', 'dia')  # 'dia' for SPD checks, 'csr' for solves
+
 
     f = problem.f
 
-    # --- selezione derivate in base a mode ---
+    # --- select derivatives calls based on cfg mode ---
     if mode == 'exact':
         grad_fn = problem.grad_exact
-        hess_fn = problem.hess_exact
+
+        if use_sparse_exact and hasattr(problem, "hess_exact_sparse"):
+            hess_fn = lambda x: problem.hess_exact_sparse(x, format=sparse_format)
+        else:
+            # Keep compatibility, but this is only feasible for small n.
+            # We do NOT attempt to densify-to-sparse for large scale.
+            hess_fn = problem.hess_exact
 
     elif mode == 'fd_hessian':
         if h is None:
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
-        hess_fn = lambda x: problem.fd_hessian_from_grad(x=x, grad=grad_fn, h=h)
+        hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
         grad_fn = lambda x: problem.fd_gradient(x, h=h)
-        hess_fn = lambda x: problem.fd_hessian_from_grad(x=x, grad=grad_fn, h=h)
+        hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
 
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
@@ -153,65 +241,137 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     x = np.asarray(x0, dtype=float)
     n = x.size
 
+    plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
+    alpha_prev = 1.0
+    s_prev = None
+    n_plateau = 0
+    # tangential fallback params
+    tang_gamma = 0.2
+    tang_tau   = 1.0
+
     path = []
     rates = []
+    f_rates = []
     lambda_last = 0.0
     total_backtracks = 0
 
-    for k in range(1, max_iters + 1):
-        print(f"iter: {k}")
-        g = grad_fn(x)
-        grad_norm = np.linalg.norm(g)
+    success = False
 
+    for k in range(1, max_iters + 1):
+        g = grad_fn(x)
+        grad_norm = float(np.linalg.norm(g))
+        f_x = f(x)
+
+        plateau.update(grad_norm)
+        use_heuristic = plateau.in_plateau()
         if save_rates:
             rates.append(grad_norm)
+            f_rates.append(f_x)
 
         if grad_norm < float(tol):
             success = True
             break
-        print("Computing Hessian...")
-        H = hess_fn(x)
-        print("...finished")
         
-        # SPD-fix via modify_to_spd
-        print("modify to spd...")
-        H_mod, lambda_used, spd_ok = _modify_to_spd(H, lam_init, lam_factor, lam_max)
-        print("...finished")
-        lambda_last = lambda_used
-        if not spd_ok:
+        if use_heuristic:
+            # plateau detected -> force tangential heuristic direction
+            print("plateau")
+            n_plateau += 1
+            p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
+
+            if float(g @ p) >= 0.0:
+                p = -g
+
+            alpha = 1.0
+
+            x_new = x + alpha * p
+            s_prev = x_new - x
+            x = x_new
+            continue
+
+        if mode == "exact":
+            H = hess_fn(x)
+        else:        
+            H = hess_fn(x, g)
+        
+            # ------ SPD-fix ------
+        if sp.issparse(H):
+            H_mod, lambda_used, spd_ok = make_spd_by_shift(
+                H, lam_init=lam_init, lam_factor=lam_factor, lam_max=lam_max, delta=delta, max_tries=max_spd_tries)
+            
+            lambda_last = lambda_used
+            if not spd_ok:
+                success = False
+                break
+
+            # Solve (prefer sparse solve; DIA->CSR is cheap)
+            p = spsolve(H_mod.tocsr(), -g)
+
+        else:
+            # Dense fallback (only sensible for small n).
+            # We force symmetry + shift until SPD using dense Cholesky.
+            # This avoids breaking if someone runs MN on n=2 or n=50.
+            Hd = 0.5 * (np.asarray(H, dtype=float) + np.asarray(H, dtype=float).T)
+            lam = float(lam_init)
+            ok = False
+            for _ in range(int(max_spd_tries)):
+                try:
+                    np.linalg.cholesky(Hd + lam * np.eye(n))
+                    ok = True
+                    break
+                except np.linalg.LinAlgError:
+                    lam *= float(lam_factor)
+                    if lam > float(lam_max):
+                        ok = False
+                        break
+            lambda_last = lam
+            if not ok:
+                success = False
+                break
+
+            p = np.linalg.solve(Hd + lam * np.eye(n), -g)
+
+        # Ensure descent direction (safety against numerical issues)
+        if float(g @ p) >= 0.0:
+            p = -g
+
+        # line search (wolfe / armijo)
+        found = False
+        if ls_type == "wolfe":
+            alpha, found = strong_wolfe_line_search(
+                f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
+            )
+            
+        if not found:
+            alpha = armijo_backtracking(
+                f, x, f_x, g, p,
+                init_alpha=alpha0,
+                rho=rho,
+                c=c,
+                max_iters=max_ls_iter
+            )
+        
+        # total_backtracks += int(ls_iters)
+
+        # If line search fails, stop rather than silently stalling
+        if alpha == 0.0:
             success = False
             break
 
-        # risolve H_mod p = -g
-        if sp.issparse(H_mod):
-            # Use sparse direct solver (SuperLU)
-            p = spsolve(H_mod.tocsc(), -g)
-        else:
-            # Fallback for small dense problems
-            p = np.linalg.solve(H_mod, -g)
-
-        # line search di Armijo (armijo_backtracking già esiste)
-        f_x = f(x)
-        alpha = armijo_backtracking(
-            f, x, f_x, g, p,
-            init_alpha=alpha0,
-            rho=rho,
-            c=c,
-            max_iters=max_ls_iter
-        )
-
         # update
+        x_old = x
         x = x + alpha * p
+        s_prev = x - x_old
+        alpha_prev = alpha
 
         if save_paths_2d and n == 2:
             path.append(x.copy())
+        
+        if k % 20 == 0:
+            #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
+                    #"cg", cg_iter, "eta", eta, "plateau", use_heuristic)
+            print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha, "lam", lambda_last)
 
-    else:
-        # non ha fatto break → non convergenza entro max_iters
-        success = False
-        k = max_iters
-        g = grad_fn(x)
-        grad_norm = np.linalg.norm(g)
+
 
     result = {
         'x': x,
@@ -227,7 +387,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
 
     if save_rates:
         result['rates'] = np.array(rates)
+        result['f_rates'] = np.array(f_rates)
 
     return result
-
 

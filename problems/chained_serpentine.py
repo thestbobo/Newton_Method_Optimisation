@@ -161,6 +161,15 @@ class ChainedSerpentine:
         H[idx + 1, idx] = e
 
         return H
+    
+    def hess_exact_sparse(self, x, format: str = "dia"):
+        """
+        Sparse tridiagonal Hessian for Modified Newton / SPD shifting.
+        Does not change the existing dense hess_exact(x).
+        """
+        x = np.asarray(x, dtype=float)
+        d, e = self._hess_tridiag(x)  # d: (n,), e: (n-1,)
+        return diags([e, d, e], offsets=[-1, 0, 1], format=format)
 
 
     def hessvec_exact(self, x, v):

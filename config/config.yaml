@@ -1,7 +1,7 @@
 run:
   problem:  chained_serpentine           # es. quad, ext_powell (entrambi presi da [1])
-  n_value: 100000                         # richiesto dall'assignment [2, 1000, 10000, 100000]
-  methods:  'tn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
+  n_value: 1000                         # richiesto dall'assignment [2, 1000, 10000, 100000]
+  methods:  'mn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID
   start_type: xbar        # {xbar, random}
   random_id: 0            # IMPOSTARE 0 SE SI USA xbar, sennò 1,2,3,4,5 per ogni random
@@ -19,7 +19,7 @@ line_search:
   max_ls_iter: 20
 
 derivatives:
-  mode: fd_all       # {exact, fd_hessian, fd_all, exact_grad_fd_hessian} → per gestire i vari esperimenti
+  mode: exact       # {exact, fd_hessian, fd_all, exact_grad_fd_hessian} → per gestire i vari esperimenti
   # per finite differences:
   h_exponents: 4             #[4, 8, 12]    genera h = 10^{-k}
   relative:                 #[false, true]   # h_i = h  oppure h_i = h*|x_i|
@@ -31,10 +31,14 @@ derivatives:
 
 modified_newton:
   # SPD modification parameters for H
+  use_sparse_exact: true
+  sparse_format: dia
   spd_fix:
     lambda_init: 1e-6       # primo λ da aggiungere sulla diagonale
     lambda_factor: 10.0     # se Cholesky fallisce → λ *= factor
     lambda_max: 1e8         # sicurezza: se superi → segnali failure
+    delta: 1e-12
+    max_spd_tries: 10       
   hessian_source:           # da usare nel codice per decidere che Hessian prendi
     exact: hess_exact
     fd_hessian: fd_hess_from_grad

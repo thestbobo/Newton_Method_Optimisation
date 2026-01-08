@@ -5,6 +5,7 @@ from optim.tn_extras.preconditioning import build_M_inv
 from collections import deque
 from differentation.finite_differences import fd_gradient, fd_hessian
 
+
 def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
     g = np.asarray(g, dtype=float)
     gg = float(g @ g)
@@ -27,10 +28,6 @@ def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
     if float(g @ p) >= 0.0:
         p = -g.copy()
     return p
-
-
-
-
 
 
 class PlateauDetector:
@@ -211,7 +208,7 @@ def solve_truncated_newton(problem, x0, config, h=None):
             Av = lambda d: hessvec_fn(x, d)     # type: ignore
 
         if use_heuristic:
-    # plateau detected -> force tangential heuristic direction
+            # plateau detected -> force tangential heuristic direction
             n_plateau += 1
             p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
             alpha = 1

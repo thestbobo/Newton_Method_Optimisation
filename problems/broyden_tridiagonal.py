@@ -109,6 +109,61 @@ class BroydenTridiagonal:
 
         return H
 
+    def hess_exact_sparse(self, x, format: str = "dia"):
+        """
+        Sparse pentadiagonal Hessian for Modified Newton / SPD shifting.
+        Does not change the existing dense hess_exact(x).
+        """
+        x = np.asarray(x, dtype=float)
+        n = x.size
+
+        phi = self.broyden_residual(x)
+
+        d0 = np.zeros(n, dtype=float)       # main diagonal
+        d1 = np.zeros(n - 1, dtype=float)   # +1 diagonal
+        d2 = np.zeros(n - 2, dtype=float)   # +2 diagonal
+
+        for i in range(n):
+            xi = x[i]
+
+            idxs = []
+            vals = []
+
+            if i > 0:
+                idxs.append(i - 1)
+                vals.append(-1.0)
+
+            idxs.append(i)
+            vals.append(3.0 - 4.0 * xi)
+
+            if i < n - 1:
+                idxs.append(i + 1)
+                vals.append(-2.0)
+
+            # 2 * (grad phi_i)(grad phi_i)^T
+            m = len(idxs)
+            for a in range(m):
+                ia = idxs[a]
+                ga = vals[a]
+
+                d0[ia] += 2.0 * ga * ga
+
+                for b in range(a + 1, m):
+                    ib = idxs[b]
+                    gb = vals[b]
+                    off = ib - ia
+                    if off == 1:
+                        d1[ia] += 2.0 * ga * gb
+                    elif off == 2:
+                        d2[ia] += 2.0 * ga * gb
+
+            # 2*phi_i * Hess(phi_i) with d2(phi_i)/dx_i^2 = -4 => add -8*phi_i to diagonal
+            d0[i] += -8.0 * float(phi[i])
+
+        return diags([d2, d1, d0, d1, d2], offsets=[-2, -1, 0, 1, 2], format=format)
+
+
+
     def hessvec_exact(self, x, v):
 
         x = np.asarray(x, dtype=float)

@@ -40,7 +40,7 @@ PROBLEMS = ["broyden_tridiagonal", "chained_serpentine"]
 
 # MN is broken in your repo right now; we keep it in list only if you want to see failures
 # If you want clean assets ONLY for TN, set METHODS = ["tn"]
-METHODS = ["tn"]  # <-- keep it clean for report
+METHODS = ["tn", "mn"]  # <-- keep it clean for report
 
 N_VALUES_BY_PROBLEM = {
     "broyden_tridiagonal": [2, 1_000, 10_000, 100_000],
@@ -166,6 +166,7 @@ def _plot_rates_aggregate(results_by_start: dict, outpath: Path, title: str, use
 
 
 def run_report_assets(base_cfg: dict, assets_root: Path) -> None:
+    i = 0
     assets_root = Path(assets_root)
 
     fig_paths_dir = assets_root / "figures" / "paths"
@@ -180,6 +181,7 @@ def run_report_assets(base_cfg: dict, assets_root: Path) -> None:
     run_index = []
 
     for problem_name in PROBLEMS:
+        
         if problem_name not in problem_classes:
             print(f"[SKIP] Unknown problem: {problem_name}")
             continue
@@ -214,6 +216,8 @@ def run_report_assets(base_cfg: dict, assets_root: Path) -> None:
                     errors_by_start = {}
 
                     for st in STARTS:
+                        print(f"[{i}] problem_name: {problem_name} - n: {n} - method: {method} - deriv: {deriv} - start: {st}")
+                        i += 1
                         cfg["run"]["start_type"] = st["start_type"]
                         cfg["run"]["random_id"] = int(st["random_id"])
 

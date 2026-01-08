@@ -2,7 +2,7 @@ run:
   problem:  chained_serpentine           # es. quad, ext_powell (entrambi presi da [1])
   use_plateau_detector: false
   n_value: 2                         # richiesto dall'assignment [2, 1000, 10000, 100000]
-  methods:  'mn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
+  methods:  'tn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID
   start_type: xbar        # {xbar, random}
   random_id: 0            # IMPOSTARE 0 SE SI USA xbar, sennò 1,2,3,4,5 per ogni random
@@ -20,7 +20,7 @@ line_search:
   max_ls_iter: 20
 
 derivatives:
-  mode: fd_all       # {exact, fd_hessian, fd_all, exact_grad_fd_hessian} → per gestire i vari esperimenti
+  mode: fd_hessian       # {exact, fd_hessian, fd_all, exact_grad_fd_hessian} → per gestire i vari esperimenti
   # per finite differences:
   h_exponents: 4             #[4, 8, 12]    genera h = 10^{-k}
   relative:                 #[false, true]   # h_i = h  oppure h_i = h*|x_i|

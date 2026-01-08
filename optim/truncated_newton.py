@@ -98,6 +98,8 @@ def solve_truncated_newton(problem, x0, config, h=None):
     ls_cfg = config['line_search']
     tn_cfg = config['truncated_newton']
 
+    n_value = run_cfg['n_value']
+    fw_bw = config['derivatives']['forward_backward']
     max_iters = run_cfg['max_iters']
     tol = run_cfg['tolerance']
     save_paths_2d = run_cfg['save_paths_2d']
@@ -133,17 +135,25 @@ def solve_truncated_newton(problem, x0, config, h=None):
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
 
-        def hessvec_fn(x, g, v, rel): # type: ignore
-            return problem.fd_hessian(x, g, h, rel) @ v
+        if n_value == 2:
+            def hessvec_fn(x, f, h, v):
+                return fd_hessian(f, x, h) @ v
+        else: 
+            def hessvec_fn(x, g, v, rel): # type: ignore
+                return problem.fd_hessian(x, g, h, rel) @ v
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
-        grad_fn = lambda x: problem.fd_gradient(x, h=h, relative=relative)
-
-        def hessvec_fn(x, g, v, rel): # type: ignore
-            return problem.fd_hessian(x, g, h, rel) @ v
-        
+        if n_value == 2:
+            grad_fn = lambda x: fd_gradient(f, x, h, forward_backward=fw_bw)
+            def hessvec_fn(x, f, h, v):
+                return fd_hessian(f, x, h) @ v
+        else:
+            grad_fn = lambda x: problem.fd_gradient(x, h=h, relative=relative)
+            def hessvec_fn(x, g, v, rel): # type: ignore
+                return problem.fd_hessian(x, g, h, rel) @ v
+            
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")
 
@@ -209,7 +219,10 @@ def solve_truncated_newton(problem, x0, config, h=None):
 
         # ---- Hessian-vector product ----
         if mode in ("fd_hessian", "fd_all"):
-            Av = lambda d: hessvec_fn(x, g, d, relative)  # type: ignore
+            if n_value == 2:
+                Av = lambda d: hessvec_fn(x, f, h, d)
+            else:
+                Av = lambda d: hessvec_fn(x, g, d, relative)  # type: ignore
         else:
             Av = lambda d: hessvec_fn(x, d)     # type: ignore
 

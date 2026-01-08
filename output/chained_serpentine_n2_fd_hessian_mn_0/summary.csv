@@ -1,0 +1,2 @@
+problem,n,mode,method,start_id,f_final,success,num_iters,num_cg_iters,grad_norm,time,rate
+chained_serpentine,2,fd_hessian,mn,0,3.02536538368808e-15,1,314,nan,9.734031938506021e-08,0.3744943279962172,0.426539405745385

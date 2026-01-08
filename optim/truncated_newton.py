@@ -102,6 +102,7 @@ def solve_truncated_newton(problem, x0, config, h=None):
     tol = run_cfg['tolerance']
     save_paths_2d = run_cfg['save_paths_2d']
     save_rates = run_cfg['save_rates']
+    use_plateau_detector = run_cfg['use_plateau_detector']
 
     ls_type = ls_cfg["type"]
     alpha0 = ls_cfg['alpha0']
@@ -149,7 +150,8 @@ def solve_truncated_newton(problem, x0, config, h=None):
     # ---------------------------------- main loop Truncated Newton (minimal) ----------------------------------------
     x = np.asarray(x0, dtype=float)
     n = x.size
-    plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
+    if use_plateau_detector:
+        plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
 
     path = []
     rates = []
@@ -177,8 +179,12 @@ def solve_truncated_newton(problem, x0, config, h=None):
         g = grad_fn(x)
         f_x = f(x)
         grad_norm = np.linalg.norm(g)
-        plateau.update(grad_norm)
-        use_heuristic = plateau.in_plateau()
+
+        if use_plateau_detector:
+            plateau.update(grad_norm)
+            use_heuristic = plateau.in_plateau()
+        else:
+            use_heuristic = False
 
         if save_rates:
             rates.append(grad_norm)

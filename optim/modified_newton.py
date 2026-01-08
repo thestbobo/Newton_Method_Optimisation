@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.sparse as sp
-from scipy.linalg import cholesky_banded
+from scipy.linalg import cholesky_banded, eigh_tridiagonal
 from scipy.sparse.linalg import spsolve
 
 from problems.broyden_tridiagonal import BroydenTridiagonal
@@ -70,28 +70,98 @@ def _infer_lower_bandwidth_from_dia(H_dia: sp.dia_matrix) -> int:
     return int(-np.min(lower_offsets))
 
 
-def make_spd_by_shift(H, lam_init, lam_factor, lam_max, delta=1e-12, max_tries=12, lam_prev=None):
+def _tridiag_min_eig_from_dia(H_dia: sp.dia_matrix):
+    """
+    Return the smallest eigenvalue for a symmetric tridiagonal DIA matrix.
+    Returns None if the matrix is not tridiagonal or the computation fails.
+    """
+    H_dia = H_dia.todia()
+    offsets = set(H_dia.offsets.astype(int))
+    if not offsets.issubset({-1, 0, 1}):
+        return None
+
+    d = H_dia.diagonal(0).astype(float)
+    if d.size == 0:
+        return None
+    e = H_dia.diagonal(1).astype(float)
+
+    if e.size == 0:
+        return float(d.min())
+
+    try:
+        w = eigh_tridiagonal(
+            d, e, eigvals_only=True, select='i', select_range=(0, 0), check_finite=False
+        )
+        return float(w[0])
+    except Exception:
+        return None
+
+
+def make_spd_by_shift(
+    H,
+    lam_init,
+    lam_factor,
+    lam_max,
+    delta=1e-12,
+    max_tries=12
+):
+    """
+    Produce SPD matrix H_mod = (H + lam*I) in sparse DIA form using:
+    1) Symmetrization
+    2) Smart initial lambda from Gershgorin lower bound
+    3) Banded Cholesky verification
+    4) Multiplicative retries only if needed
+
+    Returns
+    -------
+    H_mod : sp.dia_matrix (SPD if ok=True)
+    lam   : float
+    ok    : bool
+    """
+    if not sp.issparse(H):
+        raise TypeError("make_spd_by_shift expects a scipy sparse matrix. "
+                        "Use sparse Hessians (hess_exact_sparse) for Modified Newton.")
+
+    # Symmetrize (important with FD noise or numeric asymmetry)
     H = (H + H.T) * 0.5
     H = H.todia()
     n = H.shape[0]
+
+    lam_init = float(lam_init)
+    lam_factor = float(lam_factor)
+    lam_max = float(lam_max)
+    delta = float(delta)
+
+    # Infer bandwidth once
     u = _infer_lower_bandwidth_from_dia(H)
+
+    # Smart initial shift from spectral lower bound (tight for tridiagonal),
+    # fallback to Gershgorin if unavailable.
+    # want λ_min(H + lam I) >= delta  -> lam >= delta - λ_min(H)
+    L = _tridiag_min_eig_from_dia(H)
+    if L is None or not np.isfinite(L):
+        L = _gershgorin_lower_bound_dia(H)
+    lam = max(lam_init, delta - L, 0.0)
+
     I = sp.eye(n, format="dia")
+    H_mod = H + lam * I
 
-    # start SMALL (optionally warm-start from previous)
-    lam = float(lam_init)
-    if lam_prev is not None:
-        lam = max(lam, 0.1 * float(lam_prev))   # oppure 0.3, scegli tu
-
+    ok = False
     for _ in range(int(max_tries)):
-        H_mod = H + lam * I
         ab = _build_banded_lower_from_dia(H_mod, u=u)
         try:
             cholesky_banded(ab, lower=True, check_finite=False)
-            return H_mod, lam, True
+            ok = True
+            break
         except np.linalg.LinAlgError:
-            lam *= float(lam_factor)
-            if lam > float(lam_max):
-                return H_mod, lam, False
+            lam *= lam_factor
+            if lam > lam_max:
+                ok = False
+                break
+            H_mod = H + lam * I
+
+    return H_mod, float(lam), ok
+
 
 def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
     g = np.asarray(g, dtype=float)
@@ -150,6 +220,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     tol = run_cfg['tolerance']
     save_paths_2d = run_cfg['save_paths_2d']
     save_rates = run_cfg['save_rates']
+    use_plateau_detector = run_cfg['use_plateau_detector']
 
     ls_type = ls_cfg['type']
     alpha0 = ls_cfg['alpha0']
@@ -167,6 +238,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
 
     use_sparse_exact = mn_cfg.get('use_sparse_hessian', True)
     sparse_format = mn_cfg.get('sparse_format', 'dia')  # 'dia' for SPD checks, 'csr' for solves
+    max_damping_tries = mn_cfg.get('max_damping_tries', 6)
 
 
     f = problem.f
@@ -200,8 +272,9 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     # --- main loop Modified Newton ---
     x = np.asarray(x0, dtype=float)
     n = x.size
-
-    plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
+    I_sparse = None
+    if use_plateau_detector:
+        plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
     alpha_prev = 1.0
     s_prev = None
     n_plateau = 0
@@ -221,10 +294,13 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         g = grad_fn(x)
         grad_norm = float(np.linalg.norm(g))
         f_x = f(x)
+        
+        if use_plateau_detector:
+            plateau.update(grad_norm)
+            use_heuristic = plateau.in_plateau()
+        else:
+            use_heuristic = False
 
-        #plateau.update(grad_norm)
-        #use_heuristic = plateau.in_plateau()
-        use_heuristic = False
         if save_rates:
             rates.append(grad_norm)
             f_rates.append(f_x)
@@ -242,13 +318,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             if float(g @ p) >= 0.0:
                 p = -g
 
-            alpha = armijo_backtracking(
-                f, x, f_x, g, p,
-                init_alpha=alpha0, rho=rho, c=c, max_iters=max_ls_iter
-            )
-            if alpha == 0.0:
-                success = False
-                break
+            alpha = 1.0
 
             x_new = x + alpha * p
             s_prev = x_new - x
@@ -261,9 +331,10 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             H = hess_fn(x, g)
         
             # ------ SPD-fix ------
-        if sp.issparse(H):
+        is_sparse = sp.issparse(H)
+        if is_sparse:
             H_mod, lambda_used, spd_ok = make_spd_by_shift(
-                H, lam_init=lam_init, lam_factor=lam_factor, lam_max=lam_max, delta=delta, max_tries=max_spd_tries, lam_prev=lambda_last)
+                H, lam_init=lam_init, lam_factor=lam_factor, lam_max=lam_max, delta=delta, max_tries=max_spd_tries)
             
             lambda_last = lambda_used
             if not spd_ok:
@@ -271,7 +342,8 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
                 break
 
             # Solve (prefer sparse solve; DIA->CSR is cheap)
-            p = spsolve(H_mod.tocsr(), -g)
+            H_mod = H_mod.tocsr()
+            p = spsolve(H_mod, -g)
 
         else:
             # Dense fallback (only sensible for small n).
@@ -301,25 +373,45 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if float(g @ p) >= 0.0:
             p = -g
 
-        # line search (wolfe / armijo)
-        found = False
-        if ls_type == "wolfe":
-            alpha, found = strong_wolfe_line_search(
-                f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
-            )
-            
-        if not found:
-            alpha = armijo_backtracking(
-                f, x, f_x, g, p,
-                init_alpha=alpha0,
-                rho=rho,
-                c=c,
-                max_iters=max_ls_iter
-            )
-        
-        # total_backtracks += int(ls_iters)
+        # line search (wolfe / armijo) with damping retries
+        alpha = 0.0
+        for _ in range(int(max_damping_tries) + 1):
+            found = False
+            if ls_type == "wolfe":
+                alpha, found = strong_wolfe_line_search(
+                    f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
+                )
+                
+            if not found:
+                alpha = armijo_backtracking(
+                    f, x, f_x, g, p,
+                    init_alpha=alpha0,
+                    rho=rho,
+                    c=c,
+                    max_iters=max_ls_iter
+                )
 
-        # If line search fails, stop rather than silently stalling
+            if alpha != 0.0:
+                break
+
+            if lambda_last * lam_factor > float(lam_max):
+                break
+
+            # Increase damping and retry (shrinks the step on difficult valleys)
+            lam_new = lambda_last * lam_factor
+            if is_sparse:
+                if I_sparse is None:
+                    I_sparse = sp.eye(n, format="csr")
+                H_mod = H_mod + (lam_new - lambda_last) * I_sparse
+                p = spsolve(H_mod, -g)
+            else:
+                p = np.linalg.solve(Hd + lam_new * np.eye(n), -g)
+
+            lambda_last = lam_new
+            if float(g @ p) >= 0.0:
+                p = -g
+
+        # If line search fails after damping retries, stop rather than stalling
         if alpha == 0.0:
             success = False
             break
@@ -336,8 +428,9 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if k % 20 == 0:
             #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
                     #"cg", cg_iter, "eta", eta, "plateau", use_heuristic)
-            print(k, "||g||", grad_norm, "||p||", np.linalg.norm(p), "-gTp", -(g @ p), "alpha", alpha, "lam",
-                  lambda_last)
+            print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha, "lam", lambda_last)
+
+
 
     result = {
         'x': x,
@@ -356,4 +449,3 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         result['f_rates'] = np.array(f_rates)
 
     return result
-

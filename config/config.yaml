@@ -1,5 +1,6 @@
 run:
   problem:  chained_serpentine           # es. quad, ext_powell (entrambi presi da [1])
+  use_plateau_detector: true
   n_value: 1000                         # richiesto dall'assignment [2, 1000, 10000, 100000]
   methods:  'mn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID

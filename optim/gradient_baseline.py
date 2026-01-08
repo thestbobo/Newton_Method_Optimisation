@@ -178,7 +178,7 @@ def pcg_hess_vect_prod(grad_x0, Av, Minv, max_iter, eta):
 
         # negative curvature
         if dAd <= 0.0:
-            print('Negative curvature')
+            # print('Negative curvature')
             if it == 1:
                 p = -g.copy()
             if g @ p >= 0:
@@ -191,7 +191,7 @@ def pcg_hess_vect_prod(grad_x0, Av, Minv, max_iter, eta):
         if np.linalg.norm(r) <= eta * r_norm0:
             if g @ p >= 0:
                 p = -g.copy()
-                print('fallback')
+                #print('fallback')
             return p, it
 
         z_new = Minv(r)
@@ -204,7 +204,7 @@ def pcg_hess_vect_prod(grad_x0, Av, Minv, max_iter, eta):
 
     if g @ p >= 0:
         p = -g.copy()
-        print('fallback')
+        #print('fallback')
     return p, max_iter
 
 

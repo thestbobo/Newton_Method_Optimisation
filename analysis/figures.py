@@ -19,8 +19,12 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
     # raccogli tutti i punti delle traiettorie
     all_points = []
     for res in results_for_combo:
-        if 'path' in res:
-            all_points.append(res['path'])
+        if 'path' not in res:
+            continue
+        path = np.asarray(res['path'])
+        if path.size == 0:
+            continue
+        all_points.append(path)
     if not all_points:
         return
 

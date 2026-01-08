@@ -41,6 +41,7 @@ PROBLEMS = ["broyden_tridiagonal", "chained_serpentine"]
 # MN is broken in your repo right now; we keep it in list only if you want to see failures
 # If you want clean assets ONLY for TN, set METHODS = ["tn"]
 METHODS = ["tn", "mn"]  # <-- keep it clean for report
+FLUSH_EVERY = 50  # write tables/meta periodically so partial runs still get saved
 
 N_VALUES_BY_PROBLEM = {
     "broyden_tridiagonal": [2, 1_000, 10_000, 100_000],
@@ -165,9 +166,22 @@ def _plot_rates_aggregate(results_by_start: dict, outpath: Path, title: str, use
     return True
 
 
+def _write_tables_and_meta(rows, run_index, tab_dir: Path, meta_dir: Path):
+    df = pd.DataFrame(rows)
+    csv_path = tab_dir / "summary_all.csv"
+    df.to_csv(csv_path, index=False)
+
+    tex_path = tab_dir / "summary_all.tex"
+    with open(tex_path, "w") as f:
+        f.write(df.to_latex(index=False, longtable=True, escape=True))
+
+    (meta_dir / "run_index.json").write_text(json.dumps(run_index, indent=2))
+    return csv_path, tex_path
+
+
 def run_report_assets(base_cfg: dict, assets_root: Path) -> None:
     i = 0
-    assets_root = Path(assets_root)
+    assets_root = Path(assets_root).expanduser().resolve()
 
     fig_paths_dir = assets_root / "figures" / "paths"
     fig_rates_dir = assets_root / "figures" / "rates"
@@ -259,6 +273,9 @@ def run_report_assets(base_cfg: dict, assets_root: Path) -> None:
                             "error": err,
                         })
 
+                        if FLUSH_EVERY and (len(rows) % FLUSH_EVERY == 0):
+                            _write_tables_and_meta(rows, run_index, tab_dir, meta_dir)
+
                     # ---- PATHS aggregate for n=2 (ONE FIGURE per deriv-setting) ----
                     if int(n) == 2:
                         tmp_cfg = copy.deepcopy(cfg)
@@ -304,15 +321,7 @@ def run_report_assets(base_cfg: dict, assets_root: Path) -> None:
 
                     print(f"[OK] {problem_name} n={n} {method} {deriv['label']}")
 
-    df = pd.DataFrame(rows)
-    csv_path = tab_dir / "summary_all.csv"
-    df.to_csv(csv_path, index=False)
-
-    tex_path = tab_dir / "summary_all.tex"
-    with open(tex_path, "w") as f:
-        f.write(df.to_latex(index=False, longtable=True, escape=True))
-
-    (meta_dir / "run_index.json").write_text(json.dumps(run_index, indent=2))
+    csv_path, tex_path = _write_tables_and_meta(rows, run_index, tab_dir, meta_dir)
 
     print("\nDONE. Assets at:", assets_root)
     print(" - Tables:", csv_path, tex_path)

@@ -320,7 +320,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         
         if use_heuristic:
             # plateau detected -> force tangential heuristic direction
-            print("plateau")
+            # print("plateau")
             n_plateau += 1
             p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
 
@@ -437,10 +437,8 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if save_paths_2d and n == 2:
             path.append(x.copy())
         
-        if k % 20 == 0:
-            #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
-                    #"cg", cg_iter, "eta", eta, "plateau", use_heuristic)
-            print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha, "lam", lambda_last)
+        #if k % 20 == 0:
+            #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha, "lam", lambda_last)
 
 
 

@@ -1,0 +1,4 @@
+
+- Per la chained fare run solo n = 2 e n = 1000
+- Modified newton converge per n = 1000 migliorare convergenza solo sulla chained
+- Per n = 2 fd non funziona

@@ -70,68 +70,28 @@ def _infer_lower_bandwidth_from_dia(H_dia: sp.dia_matrix) -> int:
     return int(-np.min(lower_offsets))
 
 
-def make_spd_by_shift(
-    H,
-    lam_init,
-    lam_factor,
-    lam_max,
-    delta=1e-12,
-    max_tries=12
-):
-    """
-    Produce SPD matrix H_mod = (H + lam*I) in sparse DIA form using:
-    1) Symmetrization
-    2) Smart initial lambda from Gershgorin lower bound
-    3) Banded Cholesky verification
-    4) Multiplicative retries only if needed
-
-    Returns
-    -------
-    H_mod : sp.dia_matrix (SPD if ok=True)
-    lam   : float
-    ok    : bool
-    """
-    if not sp.issparse(H):
-        raise TypeError("make_spd_by_shift expects a scipy sparse matrix. "
-                        "Use sparse Hessians (hess_exact_sparse) for Modified Newton.")
-
-    # Symmetrize (important with FD noise or numeric asymmetry)
+def make_spd_by_shift(H, lam_init, lam_factor, lam_max, delta=1e-12, max_tries=12, lam_prev=None):
     H = (H + H.T) * 0.5
     H = H.todia()
     n = H.shape[0]
-
-    lam_init = float(lam_init)
-    lam_factor = float(lam_factor)
-    lam_max = float(lam_max)
-    delta = float(delta)
-
-    # Infer bandwidth once
     u = _infer_lower_bandwidth_from_dia(H)
-
-    # Smart initial shift from Gershgorin lower bound:
-    # want λ_min(H + lam I) >= delta  -> lam >= delta - λ_min(H)
-    L = _gershgorin_lower_bound_dia(H)
-    lam = max(lam_init, delta - L, 0.0)
-
     I = sp.eye(n, format="dia")
-    H_mod = H + lam * I
 
-    ok = False
+    # start SMALL (optionally warm-start from previous)
+    lam = float(lam_init)
+    if lam_prev is not None:
+        lam = max(lam, 0.1 * float(lam_prev))   # oppure 0.3, scegli tu
+
     for _ in range(int(max_tries)):
+        H_mod = H + lam * I
         ab = _build_banded_lower_from_dia(H_mod, u=u)
         try:
             cholesky_banded(ab, lower=True, check_finite=False)
-            ok = True
-            break
+            return H_mod, lam, True
         except np.linalg.LinAlgError:
-            lam *= lam_factor
-            if lam > lam_max:
-                ok = False
-                break
-            H_mod = H + lam * I
-
-    return H_mod, float(lam), ok
-
+            lam *= float(lam_factor)
+            if lam > float(lam_max):
+                return H_mod, lam, False
 
 def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
     g = np.asarray(g, dtype=float)
@@ -262,8 +222,9 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         grad_norm = float(np.linalg.norm(g))
         f_x = f(x)
 
-        plateau.update(grad_norm)
-        use_heuristic = plateau.in_plateau()
+        #plateau.update(grad_norm)
+        #use_heuristic = plateau.in_plateau()
+        use_heuristic = False
         if save_rates:
             rates.append(grad_norm)
             f_rates.append(f_x)
@@ -281,7 +242,13 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             if float(g @ p) >= 0.0:
                 p = -g
 
-            alpha = 1.0
+            alpha = armijo_backtracking(
+                f, x, f_x, g, p,
+                init_alpha=alpha0, rho=rho, c=c, max_iters=max_ls_iter
+            )
+            if alpha == 0.0:
+                success = False
+                break
 
             x_new = x + alpha * p
             s_prev = x_new - x
@@ -296,7 +263,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             # ------ SPD-fix ------
         if sp.issparse(H):
             H_mod, lambda_used, spd_ok = make_spd_by_shift(
-                H, lam_init=lam_init, lam_factor=lam_factor, lam_max=lam_max, delta=delta, max_tries=max_spd_tries)
+                H, lam_init=lam_init, lam_factor=lam_factor, lam_max=lam_max, delta=delta, max_tries=max_spd_tries, lam_prev=lambda_last)
             
             lambda_last = lambda_used
             if not spd_ok:
@@ -369,9 +336,8 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if k % 20 == 0:
             #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
                     #"cg", cg_iter, "eta", eta, "plateau", use_heuristic)
-            print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha, "lam", lambda_last)
-
-
+            print(k, "||g||", grad_norm, "||p||", np.linalg.norm(p), "-gTp", -(g @ p), "alpha", alpha, "lam",
+                  lambda_last)
 
     result = {
         'x': x,

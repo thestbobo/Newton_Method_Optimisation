@@ -136,8 +136,8 @@ def solve_truncated_newton(problem, x0, config, h=None):
         grad_fn = problem.grad_exact
 
         if n_value == 2:
-            def hessvec_fn(x, f, h, v):
-                return fd_hessian(f, x, h) @ v
+            def hessvec_fn(x, f, h, v, rel):
+                return fd_hessian(f, x, h, rel) @ v
         else: 
             def hessvec_fn(x, g, v, rel): # type: ignore
                 return problem.fd_hessian(x, g, h, rel) @ v
@@ -146,9 +146,9 @@ def solve_truncated_newton(problem, x0, config, h=None):
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
         if n_value == 2:
-            grad_fn = lambda x: fd_gradient(f, x, h, forward_backward=fw_bw)
-            def hessvec_fn(x, f, h, v):
-                return fd_hessian(f, x, h) @ v
+            grad_fn = lambda x: fd_gradient(f, x, h, forward_backward=fw_bw, relative=relative)
+            def hessvec_fn(x, f, h, v, rel):
+                return fd_hessian(f, x, h, rel) @ v
         else:
             grad_fn = lambda x: problem.fd_gradient(x, h=h, relative=relative)
             def hessvec_fn(x, g, v, rel): # type: ignore
@@ -220,9 +220,9 @@ def solve_truncated_newton(problem, x0, config, h=None):
         # ---- Hessian-vector product ----
         if mode in ("fd_hessian", "fd_all"):
             if n_value == 2:
-                Av = lambda d: hessvec_fn(x, f, h, d)
+                Av = lambda d: hessvec_fn(x, f, h, d, rel=relative)
             else:
-                Av = lambda d: hessvec_fn(x, g, d, relative)  # type: ignore
+                Av = lambda d: hessvec_fn(x, g, d, rel=relative)  # type: ignore
         else:
             Av = lambda d: hessvec_fn(x, d)     # type: ignore
 

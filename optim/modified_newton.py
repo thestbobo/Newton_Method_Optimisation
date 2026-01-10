@@ -242,6 +242,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     max_damping_tries = mn_cfg.get('max_damping_tries', 6)
 
     fw_bw = config['derivatives']['forward_backward']
+    relative = config['derivatives']['relative']
 
     f = problem.f
 
@@ -261,19 +262,19 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
         if n_value == 2:
-            hess_fn = lambda x: fd_hessian(f, x, h)
+            hess_fn = lambda x: fd_hessian(f, x, h=h, relative=relative)
         else:
-            hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
+            hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h, relative=relative)
 
     elif mode == 'fd_all':
         if h is None:
             raise ValueError("For fd_all mode, h must be provided.")
         if n_value == 2:
-            grad_fn = lambda x: fd_gradient(f, x, h, forward_backward=fw_bw)
-            hess_fn = lambda x: fd_hessian(f, x, h)
+            grad_fn = lambda x: fd_gradient(f, x, h=h, forward_backward=fw_bw, relative=relative)
+            hess_fn = lambda x: fd_hessian(f, x, h=h, relative=relative)
         else:
-            grad_fn = lambda x: problem.fd_gradient(x, h=h)
-            hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h)
+            grad_fn = lambda x: problem.fd_gradient(x, h=h, relative=relative)
+            hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h, relative=relative)
 
     else:
         raise ValueError(f"Unknown derivatives.mode = {mode}")

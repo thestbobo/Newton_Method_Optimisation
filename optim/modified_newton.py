@@ -6,7 +6,7 @@ from scipy.sparse.linalg import spsolve
 from problems.broyden_tridiagonal import BroydenTridiagonal
 from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_search
 from optim.tn_extras.plateau_detector import PlateauDetector
-from differentation.finite_differences import fd_gradient, fd_hessian
+from differentation.finite_differences import fd_gradient, fd_hessian, hess_from_grad
             
 def _gershgorin_lower_bound_dia(H_dia: sp.dia_matrix) -> float:
     """
@@ -262,7 +262,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             raise ValueError("For fd_hessian mode, h must be provided.")
         grad_fn = problem.grad_exact
         if n_value == 2:
-            hess_fn = lambda x: fd_hessian(f, x, h=h, relative=relative)
+            hess_fn = lambda x: hess_from_grad(problem.grad_exact, x, h=h, forward_backward=0, relative=relative)
         else:
             hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h, relative=relative)
 
@@ -271,7 +271,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             raise ValueError("For fd_all mode, h must be provided.")
         if n_value == 2:
             grad_fn = lambda x: fd_gradient(f, x, h=h, forward_backward=fw_bw, relative=relative)
-            hess_fn = lambda x: fd_hessian(f, x, h=h, relative=relative)
+            hess_fn = lambda x: hess_from_grad(grad_fn, x, h=h, forward_backward=0, relative=relative)
         else:
             grad_fn = lambda x: problem.fd_gradient(x, h=h, relative=relative)
             hess_fn = lambda x, g: problem.fd_hessian(x, g, h=h, relative=relative)
@@ -314,6 +314,9 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         if save_rates:
             rates.append(grad_norm)
             f_rates.append(f_x)
+        
+        if save_paths_2d and n == 2:
+            path.append(x.copy())
 
         if grad_norm < float(tol):
             success = True
@@ -435,8 +438,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         s_prev = x - x_old
         alpha_prev = alpha
 
-        if save_paths_2d and n == 2:
-            path.append(x.copy())
+        
         
         #if k % 20 == 0:
             #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha, "lam", lambda_last)

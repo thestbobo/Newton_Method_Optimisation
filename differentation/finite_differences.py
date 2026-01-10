@@ -140,6 +140,63 @@ def fd_hessian(f, x, h, relative=False):
 
     return hess
 
+
+def hess_from_grad(grad_fn, x, h, forward_backward=0, relative=False):
+    """
+    Finite-difference Hessian built from a gradient function.
+
+    Parameters
+    ----------
+    grad_fn : callable
+        Gradient function grad_fn(x) -> np.ndarray.
+    x : np.ndarray
+        Point at which to approximate the Hessian.
+    h : float
+        Base step (typically 10^{-k}).
+    forward_backward : int
+        0  -> central difference
+        +1 -> forward difference
+        -1 -> backward difference
+    relative : bool
+        If True, use component-wise steps h_i = h * |x_i| (fallback to h if x_i=0).
+        If False, use constant step h.
+    """
+    x = np.asarray(x, dtype=float)
+    if x.ndim != 1:
+        raise ValueError("x must be a 1D array.")
+    if h <= 0:
+        raise ValueError("h must be positive.")
+    if forward_backward not in (-1, 0, 1):
+        raise ValueError("forward_backward must be one of {-1, 0, +1}.")
+
+    n = x.size
+    hess = np.zeros((n, n), dtype=float)
+
+    def step_i(i):
+        hi = h * abs(x[i]) if relative else h
+        return hi if hi > 0.0 else h  # safeguard for x[i]==0
+
+    if forward_backward == 0:
+        for j in range(n):
+            hj = step_i(j)
+            xh1 = x.copy(); xh1[j] += hj
+            xh2 = x.copy(); xh2[j] -= hj
+            g1 = grad_fn(xh1)
+            g2 = grad_fn(xh2)
+            hess[:, j] = (g1 - g2) / (2.0 * hj)
+        return hess
+
+    g0 = grad_fn(x)
+    sgn = float(forward_backward)
+    for j in range(n):
+        hj = step_i(j)
+        xh = x.copy()
+        xh[j] += sgn * hj
+        g1 = grad_fn(xh)
+        hess[:, j] = (g1 - g0) / (sgn * hj)
+
+    return hess
+
 # might be useless
 def fd_jacobian(f, x, h, forward_backward):
     

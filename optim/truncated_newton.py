@@ -3,7 +3,7 @@ from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_searc
 from optim.gradient_baseline import pcg_hess_vect_prod
 from optim.tn_extras.preconditioning import build_M_inv
 from collections import deque
-from differentation.finite_differences import fd_gradient, fd_hessian
+from differentation.finite_differences import fd_gradient, fd_hessian, hess_from_grad
 
 
 def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
@@ -136,8 +136,9 @@ def solve_truncated_newton(problem, x0, config, h=None):
         grad_fn = problem.grad_exact
 
         if n_value == 2:
-            def hessvec_fn(x, f, h, v, rel):
-                return fd_hessian(f, x, h, rel) @ v
+            def hessvec_fn(x, v, rel):
+                H = hess_from_grad(problem.grad_exact, x, h=h, forward_backward=0, relative=rel)
+                return H @ v
         else: 
             def hessvec_fn(x, g, v, rel): # type: ignore
                 return problem.fd_hessian(x, g, h, rel) @ v
@@ -147,8 +148,9 @@ def solve_truncated_newton(problem, x0, config, h=None):
             raise ValueError("For fd_all mode, h must be provided.")
         if n_value == 2:
             grad_fn = lambda x: fd_gradient(f, x, h, forward_backward=fw_bw, relative=relative)
-            def hessvec_fn(x, f, h, v, rel):
-                return fd_hessian(f, x, h, rel) @ v
+            def hessvec_fn(x, v, rel):
+                H = hess_from_grad(grad_fn, x, h=h, forward_backward=0, relative=rel)
+                return H @ v
         else:
             grad_fn = lambda x: problem.fd_gradient(x, h=h, relative=relative)
             def hessvec_fn(x, g, v, rel): # type: ignore
@@ -220,7 +222,7 @@ def solve_truncated_newton(problem, x0, config, h=None):
         # ---- Hessian-vector product ----
         if mode in ("fd_hessian", "fd_all"):
             if n_value == 2:
-                Av = lambda d: hessvec_fn(x, f, h, d, rel=relative)
+                Av = lambda d: hessvec_fn(x, d, rel=relative)
             else:
                 Av = lambda d: hessvec_fn(x, g, d, rel=relative)  # type: ignore
         else:
@@ -329,4 +331,3 @@ def solve_truncated_newton(problem, x0, config, h=None):
         result['f_rates'] = np.array(f_rates)
 
     return result
-

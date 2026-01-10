@@ -1,4 +1,3 @@
-# analysis/figures.py
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -59,6 +58,9 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
     for idx, res in enumerate(results_for_combo):
         if 'path' not in res:
             continue
+        path = np.asarray(res['path'])
+        if path.size == 0 or path.ndim != 2 or path.shape[1] < 2:
+                continue
         path = res['path']
         plt.plot(path[:, 0], path[:, 1],
                  marker='o', linewidth=1, markersize=3, label=f'start {idx}')

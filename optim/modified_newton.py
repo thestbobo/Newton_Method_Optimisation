@@ -439,10 +439,6 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         alpha_prev = alpha
 
         
-        
-        #if k % 20 == 0:
-            #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha, "lam", lambda_last)
-
 
 
     result = {

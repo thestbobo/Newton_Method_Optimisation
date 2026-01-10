@@ -1,4 +1,3 @@
-# analysis/postprocess.py
 import os
 from analysis.tables import (
     build_table_row,

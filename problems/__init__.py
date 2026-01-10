@@ -1,9 +1,7 @@
-from problems.quad import make_quadratic
 from problems.broyden_tridiagonal import BroydenTridiagonal
 from problems.chained_serpentine import ChainedSerpentine
 
 problem_classes = {
-    "quad": make_quadratic,           # not a class yet
     "broyden_tridiagonal": BroydenTridiagonal,
     "chained_serpentine": ChainedSerpentine
 }

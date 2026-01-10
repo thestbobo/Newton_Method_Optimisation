@@ -60,6 +60,7 @@ def fd_gradient(f, x, h, forward_backward, relative=False):
 
     # forward/backward differences
     fx0 = f(x)
+
     sgn = float(forward_backward)
     for i in range(n):
         hi = step_i(i)
@@ -100,6 +101,7 @@ def fd_hessian(f, x, h, relative=False):
     n = x.size
     hess = np.zeros((n, n), dtype=float)
     fx = f(x)
+
 
     def step_i(i):
         hi = h * abs(x[i]) if relative else h
@@ -197,132 +199,4 @@ def hess_from_grad(grad_fn, x, h, forward_backward=0, relative=False):
 
     return hess
 
-# might be useless
-def fd_jacobian(f, x, h, forward_backward):
-    
-    if forward_backward == 0:
-        
-        fx0 = f(x)
-        jac = np.zeros((fx0.size, x.size))
-        
-        for j in range(0, x.size):
-            
-            xh1 = np.copy(x)
-            xh1[j] += h
-            fxh1 = f(xh1)
-            
-            xh2 = np.copy(x)
-            xh2[j] -= h
-            fxh2 = f(xh2)
-            
-            jac[:, j] = (fxh1 - fxh2) / (2*h)
-        
-        return jac
-        
-    fx0 = f(x)
-    jac = np.zeros((fx0.size, x.size))
-    
-    h = h * forward_backward
-    
-    for j in range(0, x.size):
-        
-        xh = np.copy(x)
-        xh[j] += h
-        fxh = f(xh)
-        jac[:, j] = (fxh - fx0) / h
-        
-    return jac
 
-
-def fd_hess_from_grad(fd_grad, f, x, h, forward_backward):
-    
-    if forward_backward == 0:
-        
-        fx0 = fd_grad(f, x, h, forward_backward)
-        hess = np.zeros((fx0.size, x.size))
-        
-        for j in range(0, x.size):
-            
-            xh1 = np.copy(x)
-            xh1[j] += h
-            fxh1 = fd_grad(f, xh1, h, forward_backward)
-            
-            xh2 = np.copy(x)
-            xh2[j] -= h
-            fxh2 = fd_grad(f, xh2, h, forward_backward)
-            
-            hess[:, j] = (fxh1 - fxh2) / (2*h)
-        
-        return hess
-        
-    fx0 = fd_grad(f, x, h, forward_backward)
-    hess = np.zeros((fx0.size, x.size))
-    
-    h = h * forward_backward
-    
-    for j in range(0, x.size):
-        
-        xh = np.copy(x)
-        xh[j] += h
-        fxh = fd_grad(f, xh, h, forward_backward)
-        hess[:, j] = (fxh - fx0) / h
-        
-    return hess
-
-
-def an_hess_from_grad(an_grad, x, h, forward_backward):
-    if forward_backward == 0:
-        
-        fx0 = an_grad(x)
-        hess = np.zeros((fx0.size, x.size))
-        
-        for j in range(0, x.size):
-            
-            xh1 = np.copy(x)
-            xh1[j] += h
-            fxh1 = an_grad(xh1)
-            
-            xh2 = np.copy(x)
-            xh2[j] -= h
-            fxh2 = an_grad(xh2)
-            
-            hess[:, j] = (fxh1 - fxh2) / (2*h)
-        
-        return hess
-        
-    fx0 = an_grad(x)
-    hess = np.zeros((fx0.size, x.size))
-    
-    h = h * forward_backward
-    
-    for j in range(0, x.size):
-        
-        xh = np.copy(x)
-        xh[j] += h
-        fxh = an_grad(xh)
-        hess[:, j] = (fxh - fx0) / h
-        
-    return hess
-
-
-def hessvec_fd_from_grad(f, fd_grad, x, v, h, forward_backward):
-
-    grad_x = fd_grad(x)
-    
-    x_eps = x + h*v
-    grad_x_eps = fd_grad(x_eps)
-    
-    Hv = (grad_x_eps - grad_x) / h
-    return Hv
-
-
-
-def hessvec_an_from_grad(an_grad, x, v, h):
-    
-    grad_x = an_grad(x)
-    
-    x_eps = x + h*v
-    grad_x_eps = an_grad(x_eps)
-    
-    Hv = (grad_x_eps - grad_x) / h
-    return Hv

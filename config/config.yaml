@@ -1,6 +1,11 @@
 run:
-  problem:  broyden_tridiagonal           # es. quad, ext_powell (entrambi presi da [1])
-  use_plateau_detector: false
+  problem:  chained_serpentine           # es. quad, ext_powell (entrambi presi da [1])
+  use_plateau_detector: true
+  plateau_detector:
+    window: 50
+    plateau_rel: 0.02
+    trend_rel: 0.01
+    eps: 1e-12
   n_value: 2                         # richiesto dall'assignment [2, 1000, 10000, 100000]
   methods:  'mn'                       # {mn, tn} ufficiali; gd solo extra se vuoi
   seed: 349308                          # == lowest student ID
@@ -15,8 +20,11 @@ run:
 line_search:
   type: armijo
   alpha0: 1.0        # initial step length
+  alpha0_max: 1.0    # cap for adaptive alpha0 in TN
+  alpha0_growth_factor: 2.0  # alpha0 <- min(alpha0_max, factor * alpha_prev)
   rho: 0.5        # step reduction factor
   c: 1e-4            # Armijo parameter
+  wolfe_c2: 0.5      # strong Wolfe curvature parameter
   max_ls_iter: 20
 
 derivatives:
@@ -34,6 +42,12 @@ modified_newton:
   # SPD modification parameters for H
   use_sparse_exact: true
   sparse_format: dia
+  max_damping_tries: 6
+  tangential:
+    gamma: 0.2
+    tau: 1.0
+    eps: 1e-12
+    step_alpha: 1.0
   spd_fix:
     lambda_init: 1e-6       # primo λ da aggiungere sulla diagonale
     lambda_factor: 10.0     # se Cholesky fallisce → λ *= factor
@@ -50,10 +64,25 @@ truncated_newton:
   cg:
     max_iters: 50           # iterazioni interne CG (puoi testare 20, 50, 100)
     tol: 0.001            # tolerance CG -> (0.5 was way too loose -> (0.1:loose but ok, 0.01:typical, 0.001:good))
+  cg_adapt:
+    eta_threshold: 2e-2
+    max_iters_multiplier: 3
+  forcing:
+    eta_max: 1e-1
+    eta_floor: 1e-12
+    eta_coeff: 1e-2
+    override_after_iter: 300
+    override_value: 1e-5
   hessvec_source:
     exact: hessvec_exact
     fd_hessian: hessvec_fd_from_grad  # usando grad_exact
     fd_all: hessvec_fd_from_grad      # usando grad_fd
+  tangential:
+    gamma: 0.2
+    tau: 1.0
+    eps: 1e-12
+    min_norm: 1e-16
+    step_alpha: 1.0
   preconditioning:
     type: tridiagonal_exact  # {jacobi_hutchinson, tridiagonal_exact, dsprec}
     jacobi_hutchinson:

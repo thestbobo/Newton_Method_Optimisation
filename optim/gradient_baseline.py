@@ -1,9 +1,6 @@
 import numpy as np
 
 from linesearch.backtracking import armijo_backtracking
-
-
-
 def solve_gradient(cfg, f, grad, x0, max_iters=1000, tol=1e-6):
     x = x0.copy()
 
@@ -93,11 +90,6 @@ def conjugate_gradient_hess_vect_prod_old(x0, grad_x0, max_iter, eta, hess_vect_
         r = new_r
     
     return z, max_iter
-
-
-
-import numpy as np
-
 def conjugate_gradient_hess_vect_prod(grad_x0, Av, max_iter, eta):
     g = grad_x0
     b = -g
@@ -178,7 +170,6 @@ def pcg_hess_vect_prod(grad_x0, Av, Minv, max_iter, eta):
 
         # negative curvature
         if dAd <= 0.0:
-            # print('Negative curvature')
             if it == 1:
                 p = -g.copy()
             if g @ p >= 0:
@@ -191,7 +182,6 @@ def pcg_hess_vect_prod(grad_x0, Av, Minv, max_iter, eta):
         if np.linalg.norm(r) <= eta * r_norm0:
             if g @ p >= 0:
                 p = -g.copy()
-                #print('fallback')
             return p, it
 
         z_new = Minv(r)
@@ -204,7 +194,5 @@ def pcg_hess_vect_prod(grad_x0, Av, Minv, max_iter, eta):
 
     if g @ p >= 0:
         p = -g.copy()
-        #print('fallback')
     return p, max_iter
-
 

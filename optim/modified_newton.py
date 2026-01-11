@@ -3,10 +3,9 @@ import scipy.sparse as sp
 from scipy.linalg import cholesky_banded, eigh_tridiagonal
 from scipy.sparse.linalg import spsolve
 
-from problems.broyden_tridiagonal import BroydenTridiagonal
 from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_search
 from optim.tn_extras.plateau_detector import PlateauDetector
-from differentation.finite_differences import fd_gradient, fd_hessian, hess_from_grad
+from differentation.finite_differences import fd_gradient, hess_from_grad
             
 def _gershgorin_lower_bound_dia(H_dia: sp.dia_matrix) -> float:
     """
@@ -228,21 +227,32 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     rho = ls_cfg['rho']
     c = ls_cfg['c']
     max_ls_iter = ls_cfg['max_ls_iter']
+    wolfe_c2 = ls_cfg.get('wolfe_c2', 0.5)
 
     # spd fix cfg
     spd_cfg = mn_cfg['spd_fix']
     lam_init = spd_cfg['lambda_init']
     lam_factor = spd_cfg['lambda_factor']
     lam_max = spd_cfg['lambda_max']
-    delta = spd_cfg.get('delta', 1e-12)          
-    max_spd_tries = spd_cfg.get('max_tries', 12) 
+    delta = spd_cfg.get('delta', 1e-12)
+    max_spd_tries = spd_cfg.get('max_spd_tries', spd_cfg.get('max_tries', 12))
 
-    use_sparse_exact = mn_cfg.get('use_sparse_hessian', True)
+    use_sparse_exact = mn_cfg.get('use_sparse_exact', mn_cfg.get('use_sparse_hessian', True))
     sparse_format = mn_cfg.get('sparse_format', 'dia')  # 'dia' for SPD checks, 'csr' for solves
     max_damping_tries = mn_cfg.get('max_damping_tries', 6)
 
     fw_bw = config['derivatives']['forward_backward']
     relative = config['derivatives']['relative']
+    plateau_cfg = run_cfg.get('plateau_detector', {})
+    plateau_window = int(plateau_cfg.get('window', 50))
+    plateau_rel = float(plateau_cfg.get('plateau_rel', 0.02))
+    plateau_trend_rel = float(plateau_cfg.get('trend_rel', 0.01))
+    plateau_eps = float(plateau_cfg.get('eps', 1e-12))
+    tang_cfg = mn_cfg.get('tangential', {})
+    tang_gamma = float(tang_cfg.get('gamma', 0.2))
+    tang_tau = float(tang_cfg.get('tau', 1.0))
+    tang_eps = float(tang_cfg.get('eps', 1e-12))
+    tang_step_alpha = float(tang_cfg.get('step_alpha', 1.0))
 
     f = problem.f
 
@@ -284,13 +294,15 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
     n = x.size
     I_sparse = None
     if use_plateau_detector:
-        plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
+        plateau = PlateauDetector(
+            window=plateau_window,
+            plateau_rel=plateau_rel,
+            trend_rel=plateau_trend_rel,
+            eps=plateau_eps,
+        )
     alpha_prev = 1.0
     s_prev = None
     n_plateau = 0
-    # tangential fallback params
-    tang_gamma = 0.2
-    tang_tau   = 1.0
 
     path = []
     rates = []
@@ -324,14 +336,15 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
         
         if use_heuristic:
             # plateau detected -> force tangential heuristic direction
-            # print("plateau")
             n_plateau += 1
-            p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
+            p = tangent_descent_direction(
+                g, s_prev, gamma=tang_gamma, tau=tang_tau, eps=tang_eps
+            )
 
             if float(g @ p) >= 0.0:
                 p = -g
 
-            alpha = 1.0
+            alpha = tang_step_alpha
 
             x_new = x + alpha * p
             s_prev = x_new - x
@@ -395,7 +408,7 @@ def solve_modified_newton(problem, x0, config, h=None, relative=False):
             found = False
             if ls_type == "wolfe":
                 alpha, found = strong_wolfe_line_search(
-                    f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
+                    f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=wolfe_c2
                 )
                 
             if not found:

@@ -1,6 +1,5 @@
 # optim/tn_extras/preconditioning.py
 import numpy as np
-from typing import Callable, Optional
 
 
 def _make_preconditioner_from_Av(Av, n, num_probes=16, eps=1e-8, rng=None, clip=(1e-12, 1e12)):
@@ -83,9 +82,6 @@ def _make_preconditioner_from_Av(Av, n, num_probes=16, eps=1e-8, rng=None, clip=
         return inv_diag * r
 
     return M_inv, diag_est
-
-
-import numpy as np
 
 def make_dsprec_minv_from_He(He, lam, delta=1e-6):
     """

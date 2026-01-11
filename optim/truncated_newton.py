@@ -2,8 +2,8 @@ import numpy as np
 from linesearch.backtracking import armijo_backtracking, strong_wolfe_line_search
 from optim.gradient_baseline import pcg_hess_vect_prod
 from optim.tn_extras.preconditioning import build_M_inv
-from collections import deque
-from differentation.finite_differences import fd_gradient, fd_hessian, hess_from_grad
+from optim.tn_extras.plateau_detector import PlateauDetector
+from differentation.finite_differences import fd_gradient, hess_from_grad
 
 
 def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
@@ -28,43 +28,6 @@ def tangent_descent_direction(g, s_prev, gamma=0.2, tau=1.0, eps=1e-12):
     if float(g @ p) >= 0.0:
         p = -g.copy()
     return p
-
-
-class PlateauDetector:
-    def __init__(self, window=50, plateau_rel=0.02, trend_rel=0.01, eps=1e-12):
-        self.window = window
-        self.plateau_rel = plateau_rel
-        self.trend_rel = trend_rel
-        self.eps = eps
-        self.buf = deque(maxlen=window)
-
-    def update(self, grad_norm):
-        self.buf.append(float(grad_norm))
-
-    def in_plateau(self):
-        if len(self.buf) < self.window:
-            return False
-
-        arr = np.array(self.buf, dtype=float)
-        mean_g = float(arr.mean())
-        g_last = float(arr[-1])
-
-        # "similar to mean" check
-        similar = abs(g_last - mean_g) <= self.plateau_rel * max(mean_g, self.eps)
-
-        # trend check: compare first half avg vs second half avg
-        half = self.window // 2
-        m1 = float(arr[:half].mean())
-        m2 = float(arr[half:].mean())
-
-        # If it is not decreasing enough, we call plateau
-        # (m2 close to m1 => no progress)
-        no_trend = abs(m2 - m1) <= self.trend_rel * max(mean_g, self.eps)
-
-        return similar and no_trend
-
-
-
 
 
 
@@ -111,8 +74,31 @@ def solve_truncated_newton(problem, x0, config, h=None):
     rho = ls_cfg['rho']
     c = ls_cfg['c']
     max_ls_iter = ls_cfg['max_ls_iter']
+    wolfe_c2 = ls_cfg.get('wolfe_c2', 0.5)
+    alpha0_max = ls_cfg.get('alpha0_max', 1.0)
+    alpha0_growth = ls_cfg.get('alpha0_growth_factor', 2.0)
     
     relative = config['derivatives']['relative']
+    plateau_cfg = run_cfg.get('plateau_detector', {})
+    plateau_window = int(plateau_cfg.get('window', 50))
+    plateau_rel = float(plateau_cfg.get('plateau_rel', 0.02))
+    plateau_trend_rel = float(plateau_cfg.get('trend_rel', 0.01))
+    plateau_eps = float(plateau_cfg.get('eps', 1e-12))
+    tang_cfg = tn_cfg.get('tangential', {})
+    tang_gamma = float(tang_cfg.get('gamma', 0.2))
+    tang_tau = float(tang_cfg.get('tau', 1.0))
+    tang_eps = float(tang_cfg.get('eps', 1e-12))
+    tang_min_norm = float(tang_cfg.get('min_norm', 1e-16))
+    tang_step_alpha = float(tang_cfg.get('step_alpha', 1.0))
+    forcing_cfg = tn_cfg.get('forcing', {})
+    eta_max = float(forcing_cfg.get('eta_max', 1e-1))
+    eta_floor = float(forcing_cfg.get('eta_floor', 1e-12))
+    eta_coeff = float(forcing_cfg.get('eta_coeff', 1e-2))
+    eta_override_iter = forcing_cfg.get('override_after_iter')
+    eta_override_value = forcing_cfg.get('override_value')
+    cg_adapt_cfg = tn_cfg.get('cg_adapt', {})
+    eta_cg_threshold = float(cg_adapt_cfg.get('eta_threshold', 2e-2))
+    cg_max_iters_multiplier = float(cg_adapt_cfg.get('max_iters_multiplier', 3))
 
     cg_max_iters = tn_cfg['cg']['max_iters']
 
@@ -163,7 +149,12 @@ def solve_truncated_newton(problem, x0, config, h=None):
     x = np.asarray(x0, dtype=float)
     n = x.size
     if use_plateau_detector:
-        plateau = PlateauDetector(window=50, plateau_rel=0.02, trend_rel=0.01)
+        plateau = PlateauDetector(
+            window=plateau_window,
+            plateau_rel=plateau_rel,
+            trend_rel=plateau_trend_rel,
+            eps=plateau_eps,
+        )
 
     path = []
     rates = []
@@ -172,15 +163,6 @@ def solve_truncated_newton(problem, x0, config, h=None):
 
     alpha_prev = 1.0
     s_prev = None  # previous actual step x_k - x_{k-1}
-
-    # forcing term params
-    eta_max   = 1e-1
-    eta_floor = 1e-12
-    eta_coeff = 1e-2
-
-    # tangential fallback params
-    tang_gamma = 0.2
-    tang_tau   = 1.0
 
     # identity preconditioner for PCG
     Minv_identity = lambda r: r
@@ -211,13 +193,13 @@ def solve_truncated_newton(problem, x0, config, h=None):
         eta = min(eta, eta_max)
         eta = max(eta, eta_floor)
 
-        # (se vuoi tenere il test)
-        if k > 300:
-            eta = 1e-5
+        if eta_override_iter is not None and eta_override_value is not None:
+            if k > int(eta_override_iter):
+                eta = float(eta_override_value)
 
         cg_max_iters_eff = cg_max_iters
-        if eta < 2e-2:
-            cg_max_iters_eff = min(n, 3 * cg_max_iters)
+        if eta < eta_cg_threshold:
+            cg_max_iters_eff = min(n, int(cg_max_iters_multiplier * cg_max_iters))
 
         # ---- Hessian-vector product ----
         if mode in ("fd_hessian", "fd_all"):
@@ -231,8 +213,10 @@ def solve_truncated_newton(problem, x0, config, h=None):
         if use_heuristic:
             # plateau detected -> force tangential heuristic direction
             n_plateau += 1
-            p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
-            alpha = 1
+            p = tangent_descent_direction(
+                g, s_prev, gamma=tang_gamma, tau=tang_tau, eps=tang_eps
+            )
+            alpha = tang_step_alpha
             cg_iter = 0
         else:
             # normal Newton-CG step
@@ -262,8 +246,10 @@ def solve_truncated_newton(problem, x0, config, h=None):
             pnorm = np.linalg.norm(p_try)
             descent = (float(g @ p_try) < 0.0)
 
-            if (pnorm < 1e-16) or (not descent):
-                p = tangent_descent_direction(g, s_prev, gamma=tang_gamma, tau=tang_tau)
+            if (pnorm < tang_min_norm) or (not descent):
+                p = tangent_descent_direction(
+                    g, s_prev, gamma=tang_gamma, tau=tang_tau, eps=tang_eps
+                )
                 cg_iter = 0
             else:
                 p = p_try
@@ -271,13 +257,13 @@ def solve_truncated_newton(problem, x0, config, h=None):
 
         # ---- line search ----
         if not use_heuristic:
-            alpha0 = min(1.0, 2.0 * alpha_prev)
+            alpha0 = min(alpha0_max, alpha0_growth * alpha_prev)
             found = False
 
             if ls_type == "wolfe":
 
                 alpha, found = strong_wolfe_line_search(
-                    f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=0.5
+                    f, grad_fn, x, f_x, g, p, alpha0=alpha0, c2=wolfe_c2
                 )
             
             if not found:
@@ -300,14 +286,6 @@ def solve_truncated_newton(problem, x0, config, h=None):
         if save_paths_2d and n == 2:
             path.append(x.copy())
 
-        #if k % 20 == 0:
-            #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
-                    #"cg", cg_iter, "eta", eta, "plateau", use_heuristic)
-            #print(k, "||g||", grad_norm, "f(x)", f_x, "alpha", alpha,
-                    #"cg", cg_iter, "eta", eta, prec_dict["type"])
-
-
-
     else:
         success = False
         k = max_iters
@@ -322,7 +300,6 @@ def solve_truncated_newton(problem, x0, config, h=None):
         'num_cg_iters': total_cg_iters,
         'success': success,
     }
-    print('n_plateau', n_plateau)
     if save_paths_2d and n == 2:
         result['path'] = np.array(path)
 

@@ -60,7 +60,7 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
             continue
         path = np.asarray(res['path'])
         if path.size == 0 or path.ndim != 2 or path.shape[1] < 2:
-                continue
+            continue
         path = res['path']
         plt.plot(path[:, 0], path[:, 1],
                  marker='o', linewidth=1, markersize=3, label=f'start {idx}')
@@ -84,12 +84,6 @@ def plot_top_view_with_paths(problem, results_for_combo, config,
 
     exp_path = os.path.join(exp_dir, fname)
     plt.savefig(exp_path, dpi=300)
-
-
-
-import os
-import numpy as np
-import matplotlib.pyplot as plt
 
 
 def plot_rates_for_dimension(all_results, config,

@@ -8,6 +8,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+THIS_FILE = Path(__file__).resolve()
+REPO_ROOT = THIS_FILE.parents[1]  # .../Newton_Method_Optimisation
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+
 from problems import problem_classes
 from starting_points.generator import generate_single_starting_point
 from optim.modified_newton import solve_modified_newton
@@ -19,7 +26,7 @@ from analysis.figures import plot_top_view_with_paths
 # =========================
 # SETTINGS (edit here if needed)
 # =========================
-PROBLEMS = ["broyden_tridiagonal", "chained_serpentine"]
+PROBLEMS = ["chained_serpentine"]
 
 # MN is broken in your repo right now; we keep it in list only if you want to see failures
 # If you want clean assets ONLY for TN, set METHODS = ["tn"]
